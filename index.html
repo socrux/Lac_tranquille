@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lac Tranquille</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="game">
+    <canvas id="canvas" width="480" height="270"></canvas>
+
+    <!-- HUD -->
+    <div id="hud" hidden>
+      <div class="hud-stats box">
+        <div class="money"><img class="coin" data-icon="coin" alt=""> <span id="hud-money">0</span></div>
+        <div>Poissons : <span id="hud-count">0</span></div>
+        <div>Appât : <span id="hud-bait">—</span></div>
+        <div class="admin-tag" id="hud-admin" hidden>MODE ADMIN</div>
+      </div>
+      <div class="hud-buttons">
+        <button class="hud-icon" data-open="book" title="Raccourci : C"><img data-icon="book" alt=""><span>Carnet</span></button>
+        <button class="hud-icon" data-open="shop" title="Raccourci : B"><img data-icon="shop" alt=""><span>Boutique</span></button>
+        <button class="hud-icon" data-open="crates" title="Raccourci : K"><img data-icon="crate" alt=""><span>Caisses</span></button>
+        <button class="hud-icon" data-open="achievements" title="Raccourci : T"><img data-icon="trophy" alt=""><span>Succès</span></button>
+        <button class="hud-icon" data-open="sheet" title="Raccourci : P"><img data-icon="profile" alt=""><span>Profil</span></button>
+        <button class="hud-icon" data-open="options" title="Raccourci : O"><img data-icon="options" alt=""><span>Options</span></button>
+        <button class="hud-icon" id="btn-menu" title="Raccourci : Échap"><img data-icon="menu" alt=""><span>Menu</span></button>
+      </div>
+    </div>
+
+    <div id="message"></div>
+    <div id="perfect" hidden>PERFECT !</div>
+    <div id="toasts"></div>
+
+    <!-- Carte de prise -->
+    <div id="catch-card" class="box" hidden>
+      <div class="cc-rarity" id="cc-rarity"></div>
+      <canvas id="cc-fish" class="px" width="100" height="72"></canvas>
+      <div class="cc-name" id="cc-name"></div>
+      <div class="cc-dims" id="cc-dims"></div>
+      <div class="cc-money" id="cc-money"></div>
+      <div class="cc-loot" id="cc-loot" hidden></div>
+      <div class="cc-badges" id="cc-badges"></div>
+      <button class="btn cc-continue" id="cc-continue">Continuer</button>
+    </div>
+
+    <!-- Menu principal -->
+    <div id="menu">
+      <h1 class="title">Lac Tranquille</h1>
+      <p class="subtitle">Un bateau, une canne, et tout le temps du monde.</p>
+      <button class="menu-item" id="btn-continue">Continuer</button>
+      <button class="menu-item" id="btn-new">Nouvelle partie</button>
+      <button class="menu-item" id="btn-options">Options</button>
+      <p id="save-info"></p>
+    </div>
+
+    <div id="overlay" hidden>
+      <!-- Carnet -->
+      <div id="panel-book" class="panel-wrap" hidden>
+        <div class="book">
+          <div class="page left" id="page-left"></div>
+          <div class="page right" id="page-right"></div>
+        </div>
+        <div class="book-nav">
+          <button class="btn" data-section="fish">Poissons</button>
+          <button class="btn" data-section="crust">Crustacés</button>
+          <span class="nav-sep"></span>
+          <button class="btn" id="book-prev">‹ Précédent</button>
+          <span id="book-pos"></span>
+          <button class="btn" id="book-next">Suivant ›</button>
+          <button class="btn" data-close>Fermer</button>
+        </div>
+      </div>
+
+      <!-- Boutique -->
+      <div id="panel-shop" class="panel-wrap panel box" hidden>
+        <header>
+          <h2><img data-icon="shop" alt="">Boutique du port</h2>
+          <div class="money"><img class="coin" data-icon="coin" alt=""> <span id="shop-money">0</span></div>
+          <button class="btn close" data-close>Fermer</button>
+        </header>
+        <div class="tabs">
+          <button class="btn tab active" data-tab="rods">Cannes à pêche</button>
+          <button class="btn tab" data-tab="baits">Appâts</button>
+          <button class="btn tab" data-tab="pots">Caisses</button>
+        </div>
+        <div id="shop-list" class="item-list"></div>
+      </div>
+
+      <!-- Profil -->
+      <div id="panel-sheet" class="panel-wrap panel box" hidden>
+        <header>
+          <h2><img data-icon="profile" alt="">Profil du pêcheur</h2>
+          <button class="btn close" data-close>Fermer</button>
+        </header>
+        <div class="sheet">
+          <section class="sheet-gear">
+            <canvas id="portrait" class="px" width="150" height="96"></canvas>
+            <div id="sheet-gear"></div>
+          </section>
+          <section class="sheet-stats">
+            <h3>Statistiques</h3>
+            <table id="sheet-stats"></table>
+          </section>
+        </div>
+      </div>
+
+      <!-- Caisses à crustacés -->
+      <div id="panel-crates" class="panel-wrap panel box" hidden>
+        <header>
+          <h2><img data-icon="crate" alt="">Caisses à crustacés</h2>
+          <button class="btn close" data-close>Fermer</button>
+        </header>
+        <p class="panel-hint">Jusqu'à 2 caisses à l'eau. Elles se remplissent avec le temps, même jeu fermé.
+          Une caisse pleine affiche un « ! » : cliquez sur sa bouée dans le lac pour la relever.</p>
+        <div id="crates-list" class="crates"></div>
+      </div>
+
+      <!-- Caisse relevée -->
+      <div id="panel-pot" class="panel-wrap panel box" hidden>
+        <header>
+          <h2><img data-icon="crate" alt=""><span id="pot-title">Caisse relevée</span></h2>
+          <div class="money" id="pot-total"></div>
+        </header>
+        <div id="pot-list" class="pot-list"></div>
+        <div class="pot-actions">
+          <button class="btn" id="pot-redeploy">Remettre à l'eau</button>
+          <button class="btn" data-close>Fermer</button>
+        </div>
+      </div>
+
+      <!-- Succès -->
+      <div id="panel-achievements" class="panel-wrap panel box" hidden>
+        <header>
+          <h2><img data-icon="trophy" alt="">Succès</h2>
+          <div class="money" id="ach-count"></div>
+          <button class="btn close" data-close>Fermer</button>
+        </header>
+        <div id="ach-list" class="ach-list"></div>
+      </div>
+
+      <!-- Options -->
+      <div id="panel-options" class="panel box options" hidden>
+        <header>
+          <h2><img data-icon="options" alt="">Options</h2>
+          <button class="btn close" data-close>Fermer</button>
+        </header>
+        <div class="opt-row">
+          <label for="opt-music">Musique</label>
+          <input type="range" id="opt-music" min="0" max="100">
+          <span class="opt-val" id="opt-music-val"></span>
+        </div>
+        <div class="opt-row">
+          <label for="opt-sfx">Effets sonores</label>
+          <input type="range" id="opt-sfx" min="0" max="100">
+          <span class="opt-val" id="opt-sfx-val"></span>
+        </div>
+        <div class="opt-row">
+          <label class="check"><input type="checkbox" id="opt-mute"> Couper tout le son</label>
+        </div>
+        <div class="opt-row">
+          <button class="btn" id="opt-fullscreen">Plein écran</button>
+        </div>
+        <div class="save-box">
+          <h3>Sauvegarde</h3>
+          <p class="save-hint">La partie est enregistrée dans ce navigateur. Exportez-la dans un fichier pour la garder en lieu sûr ou la transférer.</p>
+          <div class="admin-buttons">
+            <button class="btn" id="save-export">Exporter la sauvegarde</button>
+            <button class="btn" id="save-import">Importer une sauvegarde</button>
+            <input type="file" id="save-file" accept=".json,application/json" hidden>
+          </div>
+          <div id="save-confirm" class="save-confirm" hidden>
+            <p id="save-summary"></p>
+            <div class="admin-buttons">
+              <button class="btn" id="save-apply">Remplacer ma partie</button>
+              <button class="btn" id="save-cancel">Annuler</button>
+            </div>
+          </div>
+          <p class="admin-hint" id="save-msg"></p>
+        </div>
+        <div class="admin-box">
+          <label class="check"><input type="checkbox" id="opt-admin"> Mode admin</label>
+          <div id="admin-tools" hidden>
+            <div class="opt-row">
+              <label for="admin-fish">Prochain poisson</label>
+              <select id="admin-fish"></select>
+            </div>
+            <div class="opt-row">
+              <label for="admin-corrupt">Corruption</label>
+              <input type="range" id="admin-corrupt" min="0" max="100">
+              <span class="opt-val" id="admin-corrupt-val"></span>
+            </div>
+            <div class="admin-buttons">
+              <button class="btn" id="admin-dex">Tout débloquer dans le carnet</button>
+              <button class="btn" id="admin-money">+10 000 pièces</button>
+              <button class="btn" id="admin-pots">Remplir les caisses</button>
+              <button class="btn" id="admin-corrupt-reset">Corruption réelle</button>
+            </div>
+            <p class="admin-hint" id="admin-hint"></p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="audio.js"></script>
+  <script src="pixel.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
