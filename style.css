@@ -493,6 +493,8 @@ button { font-family: inherit; color: #fff; text-shadow: var(--outline); cursor:
 .admin-hint { font-size: 0.85em; opacity: 0.8; margin: 0.6em 0 0; }
 .admin-tag { color: #ff7a7a; font-size: 0.8em; letter-spacing: 0.1em; }
 
+.version { margin: 1em 0 0; text-align: right; font-size: 0.85em; opacity: 0.6; }
+
 /* ---------- Sauvegarde ---------- */
 .save-box { margin-top: 1em; padding-top: 0.8em; border-top: 0.12em dashed rgba(131, 148, 236, 0.5); font-size: 1.05em; }
 .save-box h3 { margin: 0 0 0.3em; font-size: 1.2em; color: #ffe56a; font-weight: 600; }

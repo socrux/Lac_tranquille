@@ -13,6 +13,9 @@ const BOAT_Y = 222;          // haut de la coque
 
 const $ = (id) => document.getElementById(id);
 
+// Version du jeu : à mettre à jour à chaque pull request (MAJEUR.MINEUR.CORRECTIF)
+const GAME_VERSION = '1.0.0';
+
 // ===========================================================================
 // Données
 // ===========================================================================
@@ -3197,7 +3200,7 @@ $('save-export').addEventListener('click', () => {
   if (inGame) writeSave();
   const data = loadSave();
   if (!data) { saveMsg('Aucune partie à exporter pour le moment.'); return; }
-  const file = { game: 'lac-tranquille', format: 1, exportedAt: new Date().toISOString(), save: data };
+  const file = { game: 'lac-tranquille', format: 1, version: GAME_VERSION, exportedAt: new Date().toISOString(), save: data };
   const url = URL.createObjectURL(new Blob([JSON.stringify(file, null, 2)], { type: 'application/json' }));
   const a = document.createElement('a');
   a.href = url;
@@ -3445,6 +3448,7 @@ window.addEventListener('resize', fitUi);
 // ===========================================================================
 // Démarrage & boucle
 // ===========================================================================
+$('game-version').textContent = GAME_VERSION;
 buildIcons();
 document.querySelectorAll('img[data-icon]').forEach((img) => { img.src = ICONS[img.dataset.icon]; });
 buildScene();
