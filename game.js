@@ -295,9 +295,15 @@ function emptyProgress() {
     potsOwned: {},          // { [type]: nombre possédé }
     pots: [null, null],     // caisses à l'eau : { type, bait, placedAt, nextAt, contents: [] }
     achievements: {},       // { [id]: date de déblocage }
+    items: [],              // inventaire : { uid, id }
+    equip: {},              // { [emplacement]: uid }
+    itemSeq: 0,
+    clock: CLOCK_START,     // secondes de jeu depuis le début de la partie (1 jour = DAY_LEN)
+    weather: null,          // { id, until } (until : en secondes de jeu)
     stats: {
       casts: 0, caught: 0, missed: 0, early: 0, aboms: 0, perfects: 0, chests: 0,
       crusts: 0, potsCollected: 0, cthulhu: 0, earned: 0, spent: 0, playTime: 0, best: null,
+      itemsFound: 0, itemsSold: 0, itemsEarned: 0,
     },
   };
 }
@@ -322,6 +328,16 @@ function migrate(s) {
   if (!BAIT_BY_ID[out.bait]) out.bait = 'pain';
   out.rods = out.rods.filter((id) => ROD_BY_ID[id]);
   if (!out.rods.includes('bambou')) out.rods.unshift('bambou');
+  // équipement : on ne garde que les objets connus, et un équipement doit pointer vers un objet de l'inventaire
+  out.items = (Array.isArray(s.items) ? s.items : []).filter((it) => it && ITEM_BY_ID[it.id] && Number.isFinite(it.uid));
+  out.itemSeq = Math.max(Number(s.itemSeq) || 0, ...out.items.map((it) => it.uid));
+  out.equip = {};
+  for (const sl of SLOTS) {
+    const it = out.items.find((x) => x.uid === s.equip?.[sl.id]);
+    if (it && ITEM_BY_ID[it.id].slot === sl.id) out.equip[sl.id] = it.uid;
+  }
+  out.clock = Number.isFinite(s.clock) ? s.clock : CLOCK_START;
+  out.weather = s.weather && WEATHER_BY_ID[s.weather.id] ? s.weather : null;
   return out;
 }
 
@@ -354,11 +370,68 @@ function corruption() {
   return clamp((progress.stats.aboms || 0) / CORRUPTION_MAX_ABOMS, 0, 1);
 }
 
-const abomChance = (b = bait()) => BASE_ABOM_CHANCE + b.abom;
+// ---------------------------------------------------------------------------
+// Temps, météo et modificateurs (équipement + météo + nuit)
+// ---------------------------------------------------------------------------
+const hourOf = (clock) => (((clock % DAY_LEN) + DAY_LEN) % DAY_LEN) / DAY_LEN * 24;
+const dayOf = (clock) => Math.floor(clock / DAY_LEN) + 1;
+const isNightHour = (h) => h >= 20 || h < 5.5;
+const isNight = () => inGame && isNightHour(hourOf(progress.clock));
+const weather = () => WEATHER_BY_ID[progress.weather?.id] || WEATHER_BY_ID.clair;
+function fmtHour(clock) {
+  const m = Math.floor(hourOf(clock) * 60);
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}
+
+const itemDef = (inst) => ITEM_BY_ID[inst.id];
+const itemByUid = (uid) => progress.items.find((it) => it.uid === uid);
+const equippedItem = (slot) => {
+  const inst = progress.equip[slot] != null ? itemByUid(progress.equip[slot]) : null;
+  return inst ? itemDef(inst) : null;
+};
+const isEquipped = (inst) => progress.equip[itemDef(inst).slot] === inst.uid;
+
+// Toutes les sources d'effets actives : objets équipés, météo, nuit
+function activeSources() {
+  const out = [];
+  for (const sl of SLOTS) {
+    const it = equippedItem(sl.id);
+    if (it) out.push({ kind: 'item', name: it.name, fx: it.fx, icon: equipIcon(it) });
+  }
+  if (inGame) {
+    const w = weather();
+    if (Object.keys(w.fx).length) out.push({ kind: 'weather', name: w.name, fx: w.fx, icon: weatherIcon(w.id) });
+    if (isNight()) out.push({ kind: 'night', name: NIGHT.name, fx: NIGHT.fx, icon: weatherIcon('nuit') });
+  }
+  return out;
+}
+
+function sumFx(sources) {
+  const m = {};
+  for (const [k, d] of Object.entries(FX)) m[k] = d.mul ? 1 : 0;
+  for (const s of sources) for (const [k, v] of Object.entries(s.fx)) m[k] = FX[k].mul ? m[k] * v : m[k] + v;
+  return m;
+}
+
+// recalculé une fois par image (et à chaque changement d'équipement)
+let modsCache = null;
+function mods() {
+  if (!modsCache) {
+    modsCache = sumFx(activeSources());
+    modsCache.speed = Math.min(modsCache.speed, 0.6);
+    modsCache.vigor = Math.min(modsCache.vigor, 0.6);
+  }
+  return modsCache;
+}
+const invalidateMods = () => { modsCache = null; };
+
+const abomChance = (b = bait()) => clamp((BASE_ABOM_CHANCE + b.abom + mods().abom) * mods().abomMul, 0, 0.9);
 function fishWeight(f, b = bait()) {
-  const w = f.spawn * (1 + b.rare * f.tier);
-  // le Grand Ancien : la canne et la corruption du lac l'attirent
-  return f.unique ? w * rod().cthulhu * (1 + corruption() * 4) : w;
+  const M = mods();
+  let w = f.spawn * (1 + (b.rare + M.rare) * f.tier);
+  if (f.tier === 4 && !f.unique) w *= M.legend;
+  // le Grand Ancien : la canne, la corruption du lac et l'orage l'attirent
+  return f.unique ? w * rod().cthulhu * (1 + corruption() * 4) * M.cthulhu : w;
 }
 
 function fishOdds(b = bait()) {
@@ -386,7 +459,7 @@ function setState(state) { game.state = state; game.t = 0; }
 function say(text) { $('message').textContent = text; }
 function addRipple(x, y, strength = 1) { ripples.push({ x, y, r: 1, max: 14 * strength, a: 1 }); }
 function perspective(y) { return 0.5 + ((y - HORIZON) / (LH - HORIZON)) * 0.8; }
-const boatBob = () => Math.round(Math.sin(time * 1.3) * 1.5);
+const boatBob = () => Math.round(Math.sin(time * (1.3 + wv.storm)) * (1.5 + wv.wind + wv.storm * 1.5));
 
 function rodTip() {
   let bend = 0;
@@ -444,8 +517,9 @@ function startWaiting() {
   game.float.x = game.float.to.x;
   game.float.y = game.float.to.y;
   addRipple(game.float.x, game.float.y, 1.3);
-  game.biteAt = rand(3, 10) * rod().speed;
-  game.nextNibble = rand(0.8, 2.2) * rod().speed;
+  const wait = rod().speed * (1 - mods().speed);
+  game.biteAt = rand(3, 10) * wait;
+  game.nextNibble = rand(0.8, 2.2) * wait;
   game.nibble = 0;
   setState('waiting');
   say(game.baitRanOut ? `Plus de ${game.baitRanOut} ! Retour à la mie de pain. Patience…` : 'Patience…');
@@ -454,7 +528,7 @@ function startWaiting() {
 
 function reactionWindow() {
   const { f, abom } = game.fish;
-  return f.window * (abom ? 0.85 : 1) + rod().window;
+  return f.window * (abom ? 0.85 : 1) + rod().window + mods().window;
 }
 
 function rollCatch(f, abom) {
@@ -491,12 +565,15 @@ function registerCatch(f, abom, c) {
 function strike() {
   const { f, abom } = game.fish;
   const c = rollCatch(f, abom);
+  const M = mods();
+  c.money = Math.round(c.money * (1 + M.gold));
   const m = game.mg;
   const perfect = !!m?.perfect;
-  const bonus = perfect ? Math.max(1, Math.round(c.money * MG.perfectBonus)) : 0;
+  const bonus = perfect ? Math.max(1, Math.round(c.money * MG.perfectBonus * (1 + M.perfect))) : 0;
   const loot = m?.chest?.got ? rollChestLoot() : null;
   const flags = registerCatch(f, abom, c);
-  game.catch = { f, abom, ...c, perfect, bonus, loot, ...flags };
+  const drop = Math.random() < itemDropChance(f.tier, abom, 'fish') ? addItem(rollItem(f.tier, abom)) : null;
+  game.catch = { f, abom, ...c, perfect, bonus, loot, drop, goldBonus: M.gold, ...flags };
   if (f.unique) progress.stats.cthulhu = (progress.stats.cthulhu || 0) + 1;
   if (loot) {
     progress.baits[loot.bait.id] = (progress.baits[loot.bait.id] || 0) + loot.qty;
@@ -517,7 +594,79 @@ function strike() {
   say('');
   showCatchCard();
   Sound.catchFish(abom || f.unique);
+  if (drop) setTimeout(() => Sound.itemFound(itemDef(drop.inst).tier), 500);
   checkAchievements({ type: 'catch', f, abom, perfect, ...flags });
+  if (drop) checkAchievements({ type: 'item', item: itemDef(drop.inst) });
+}
+
+// ---------------------------------------------------------------------------
+// Objets (équipement)
+// ---------------------------------------------------------------------------
+// Chance qu'une prise rapporte un objet, selon sa rareté et la source (poisson ou caisse)
+function itemDropChance(tier, abom, source) {
+  const base = source === 'fish' ? 0.04 + 0.015 * tier : 0.025 + 0.01 * tier;
+  return clamp((base + (abom ? 0.05 : 0)) * (1 + mods().luck), 0, 0.9);
+}
+
+// Tirage d'un objet : les prises rares (et les abominations) donnent de meilleurs objets
+function itemWeights(srcTier = 0, abom = false) {
+  const q = srcTier * 0.35 + (abom ? 0.8 : 0) + mods().rare * 0.5;
+  return ITEMS.map((it) => ITEM_TIER_WEIGHT[it.tier] * (1 + q * it.tier));
+}
+function rollItem(srcTier = 0, abom = false) {
+  const w = itemWeights(srcTier, abom);
+  let r = Math.random() * w.reduce((s, x) => s + x, 0);
+  for (let i = 0; i < ITEMS.length; i++) {
+    r -= w[i];
+    if (r <= 0) return ITEMS[i];
+  }
+  return ITEMS[0];
+}
+
+// Ajoute un objet à l'inventaire. S'il est plein, l'objet est vendu automatiquement.
+function addItem(it) {
+  progress.stats.itemsFound = (progress.stats.itemsFound || 0) + 1;
+  const inst = { uid: ++progress.itemSeq, id: it.id };
+  if (progress.items.length >= ITEM_CAP) {
+    const v = itemValue(it);
+    progress.money += v;
+    progress.stats.earned += v;
+    return { inst, sold: v };
+  }
+  progress.items.push(inst);
+  return { inst, sold: 0 };
+}
+
+function equipItem(uid) {
+  const inst = itemByUid(uid);
+  if (!inst) return;
+  progress.equip[itemDef(inst).slot] = uid;
+  onEquipChange();
+}
+function unequipSlot(slot) {
+  delete progress.equip[slot];
+  onEquipChange();
+}
+function sellItems(uids) {
+  let total = 0;
+  for (const uid of uids) {
+    const i = progress.items.findIndex((it) => it.uid === uid);
+    if (i < 0 || isEquipped(progress.items[i])) continue;
+    total += itemValue(itemDef(progress.items[i]));
+    progress.items.splice(i, 1);
+    progress.stats.itemsSold = (progress.stats.itemsSold || 0) + 1;
+  }
+  progress.money += total;
+  progress.stats.earned += total;
+  progress.stats.itemsEarned = (progress.stats.itemsEarned || 0) + total;
+  return total;
+}
+function onEquipChange() {
+  invalidateMods();
+  refreshBoat();
+  writeSave();
+  updateHud();
+  checkAchievements();
 }
 
 // ---------------------------------------------------------------------------
@@ -527,8 +676,9 @@ const potType = (p) => POT_BY_ID[p.type];
 const potFull = (p) => p.contents.length >= potType(p).capacity;
 
 function potInterval(p) {
-  return POT_BASE_INTERVAL / (potType(p).speed * (1 + BAIT_BY_ID[p.bait].rare * 0.4));
+  return POT_BASE_INTERVAL / (potType(p).speed * (1 + BAIT_BY_ID[p.bait].rare * 0.4) * (1 + mods().crate));
 }
+const potAbomChance = (pot) => clamp((BASE_ABOM_CHANCE + BAIT_BY_ID[pot.bait].abom + potType(pot).abom + mods().abom) * mods().abomMul, 0, 0.9);
 
 function potsAvailable(typeId) {
   const deployed = progress.pots.filter((p) => p && p.type === typeId).length;
@@ -537,8 +687,8 @@ function potsAvailable(typeId) {
 
 function crustOdds(pot) {
   const b = BAIT_BY_ID[pot.bait];
-  const rare = b.rare + potType(pot).rare;
-  const weights = CRUSTS.map((cr) => cr.spawn * (1 + rare * cr.tier));
+  const rare = b.rare + potType(pot).rare + mods().rare;
+  const weights = CRUSTS.map((cr) => cr.spawn * (1 + rare * cr.tier) * (cr.tier === 4 ? mods().legend : 1));
   const total = weights.reduce((s, w) => s + w, 0);
   return weights.map((w) => w / total);
 }
@@ -551,7 +701,7 @@ function rollCrust(pot) {
     r -= odds[i];
     if (r <= 0) { cr = CRUSTS[i]; break; }
   }
-  const abom = Math.random() < BASE_ABOM_CHANCE + BAIT_BY_ID[pot.bait].abom + potType(pot).abom;
+  const abom = Math.random() < potAbomChance(pot);
   return { id: cr.id, abom, ...rollCatch(cr, abom) };
 }
 
@@ -595,16 +745,22 @@ function collectPot(slot) {
   const pot = progress.pots[slot];
   if (!pot) return;
   progress.pots[slot] = null;
+  const gold = 1 + mods().gold;
+  const drops = [];
   const results = pot.contents.map((it) => {
     const cr = CRUST_BY_ID[it.id];
-    return { cr, ...it, ...registerCatch(cr, it.abom, it) };
+    const c = { ...it, money: Math.round(it.money * gold) };
+    if (Math.random() < itemDropChance(cr.tier, it.abom, 'pot')) drops.push(addItem(rollItem(cr.tier, it.abom)));
+    return { cr, ...c, ...registerCatch(cr, it.abom, c) };
   });
   progress.stats.crusts = (progress.stats.crusts || 0) + results.length;
   progress.stats.potsCollected = (progress.stats.potsCollected || 0) + 1;
-  lastPot = { slot, type: pot.type, bait: pot.bait, results };
+  lastPot = { slot, type: pot.type, bait: pot.bait, results, drops };
   addRipple(POT_SLOTS[slot].x, POT_SLOTS[slot].y, 1);
   if (results.length) Sound.catchFish(results.some((r) => r.abom)); else Sound.miss();
+  if (drops.length) setTimeout(() => Sound.itemFound(Math.max(...drops.map((d) => itemDef(d.inst).tier))), 500);
   for (const r of results) checkAchievements({ type: 'catch', ...r, f: r.cr });
+  for (const d of drops) checkAchievements({ type: 'item', item: itemDef(d.inst) });
   checkAchievements({ type: 'collect', full: results.length >= POT_BY_ID[pot.type].capacity });
   writeSave();
   updateHud();
@@ -649,24 +805,28 @@ function chestOdds() {
 }
 
 function fishVigor(f, abom) {
-  return TIER_VIGOR[f.tier] * (abom ? ABOM_VIGOR : 1) * rod().vigor;
+  return TIER_VIGOR[f.tier] * (abom ? ABOM_VIGOR : 1) * rod().vigor * (1 - mods().vigor) * mods().vigorMul;
 }
+const barSize = () => clamp(MG.barSize * (1 + mods().bar), 0.1, 0.5);
+const chestChance = () => clamp(MG.chestChance * (1 + mods().chest), 0, 0.6);
 
 function startReel() {
   const { f, abom } = game.fish;
+  const bs = barSize();
   game.mg = {
     vigor: fishVigor(f, abom),
+    barSize: bs,
     bar: 0,
     barV: 0,
-    fish: MG.barSize / 2,          // le poisson démarre dans la barre
-    fishTarget: MG.barSize / 2,
+    fish: bs / 2,                  // le poisson démarre dans la barre
+    fishTarget: bs / 2,
     fishTimer: 0.6,
     progress: MG.start,
     inZone: true,
     perfect: true,
     tick: 0,
     t: 0,
-    chest: Math.random() < MG.chestChance
+    chest: Math.random() < chestChance()
       ? { pos: rand(0.08, 0.92), appearAt: rand(0.8, 3), visible: false, progress: 0, got: false, inZone: false, flash: 0 }
       : null,
     from: { x: game.float.x, y: game.float.y },
@@ -695,9 +855,9 @@ function updateReel(dt) {
   m.barV = clamp(m.barV, -MG.maxSpeed, MG.maxSpeed);
   m.bar += m.barV * dt;
   if (m.bar < 0) { m.bar = 0; m.barV = m.barV < -0.3 ? -m.barV * 0.35 : 0; }
-  if (m.bar > 1 - MG.barSize) { m.bar = 1 - MG.barSize; m.barV = Math.min(0, m.barV); }
+  if (m.bar > 1 - m.barSize) { m.bar = 1 - m.barSize; m.barV = Math.min(0, m.barV); }
 
-  m.inZone = m.fish >= m.bar && m.fish <= m.bar + MG.barSize;
+  m.inZone = m.fish >= m.bar && m.fish <= m.bar + m.barSize;
   if (!m.inZone) m.perfect = false;
   m.progress += (m.inZone ? MG.fill : -MG.drain * (1 + m.vigor * 0.4)) * dt;
 
@@ -707,7 +867,7 @@ function updateReel(dt) {
   if (ch && !ch.got) {
     if (!ch.visible && m.t >= ch.appearAt) { ch.visible = true; Sound.chestAppear(); }
     if (ch.visible) {
-      ch.inZone = ch.pos >= m.bar && ch.pos <= m.bar + MG.barSize;
+      ch.inZone = ch.pos >= m.bar && ch.pos <= m.bar + m.barSize;
       ch.progress = clamp(ch.progress + (ch.inZone ? MG.chestFill : -MG.chestDrain) * dt, 0, 1);
       if (ch.progress >= 1) {
         ch.got = true;
@@ -779,8 +939,150 @@ let saveTimer = 0;
 
 let potTimer = 0;
 
+// ---------------------------------------------------------------------------
+// Horloge, jour/nuit et météo
+// ---------------------------------------------------------------------------
+function rollWeather(prev) {
+  const night = isNightHour(hourOf(progress.clock));
+  if (prev === 'pluie' && !night && Math.random() < 0.4) return 'arcenciel';
+  const pool = WEATHERS.filter((w) => w.weight > 0 && w.id !== prev && !(night && w.dayOnly));
+  const weights = pool.map((w) => w.weight * (w.id === 'orage' && (prev === 'pluie' || prev === 'nuageux') ? 2.5 : 1));
+  let r = Math.random() * weights.reduce((s, x) => s + x, 0);
+  for (let i = 0; i < pool.length; i++) {
+    r -= weights[i];
+    if (r <= 0) return pool[i].id;
+  }
+  return 'clair';
+}
+
+function setWeather(id, announce = true) {
+  const w = WEATHER_BY_ID[id];
+  progress.weather = { id, until: progress.clock + rand(w.dur[0], w.dur[1]) };
+  invalidateMods();
+  if (announce) {
+    pushToast({ icon: weatherIcon(id), label: 'Changement de météo', title: w.name,
+      sub: Object.keys(w.fx).length ? fxLines(w.fx).join(' · ') : 'Aucun effet', sound: () => Sound.chestAppear() });
+  }
+  updateWorldHud(true);
+  if (openPanelName === 'sheet') renderSheet();
+}
+
+function updateClock(dt) {
+  const prev = progress.clock;
+  progress.clock += dt;
+  const wasNight = isNightHour(hourOf(prev));
+  const night = isNightHour(hourOf(progress.clock));
+  if (night !== wasNight) {
+    invalidateMods();
+    pushToast(night
+      ? { icon: weatherIcon('nuit'), label: 'La nuit tombe', title: `Nuit du jour ${dayOf(progress.clock)}`, sub: fxLines(NIGHT.fx).join(' · '), sound: () => Sound.chestAppear() }
+      : { icon: weatherIcon('soleil'), label: 'Le jour se lève', title: `Jour ${dayOf(progress.clock)}`, sound: () => Sound.chestAppear() });
+  }
+  const w = progress.weather;
+  if (!w) setWeather('clair', false);
+  else if (progress.clock >= w.until || (night && weather().dayOnly)) setWeather(rollWeather(w.id));
+}
+
+// Lumière selon l'heure : 0 = plein jour, 1 = nuit noire
+function darknessAt(h) {
+  if (h >= 7 && h < 18) return 0;
+  if (h >= 18 && h < 21) return (h - 18) / 3;
+  if (h >= 21 || h < 4.5) return 1;
+  return 1 - (h - 4.5) / 2.5;
+}
+// Lueur orangée de l'aube et du crépuscule
+const duskAt = (h) => clamp(Math.max(1 - Math.abs(h - 19) / 1.5, 1 - Math.abs(h - 6) / 1.2, 0), 0, 1);
+function sunPos(h) {
+  if (h < 5 || h > 20.5) return null;
+  const p = (h - 5) / 15.5;
+  return { x: Math.round(30 + p * 420), y: Math.round(104 - Math.sin(p * Math.PI) * 86) };
+}
+function moonPos(h) {
+  const n = h >= 19 ? (h - 19) / 12 : h < 7 ? (h + 5) / 12 : null;
+  if (n === null) return null;
+  return { x: Math.round(30 + n * 420), y: Math.round(104 - Math.sin(n * Math.PI) * 80) };
+}
+
+// État visuel, qui glisse doucement vers la météo et l'heure actuelles
+const wv = { overcast: 0, storm: 0, rain: 0, fog: 0, wind: 0.1, sun: 0, rainbow: 0, dark: 0, dusk: 0, hour: 10 };
+const VIS_KEYS = ['overcast', 'storm', 'rain', 'fog', 'wind', 'sun', 'rainbow'];
+const drops = [];
+const gusts = [];
+const storm = { next: 4, flash: 0, bolt: null, boltT: 0 };
+let rainSoundTimer = 0;
+
+function newDrop(anywhere) {
+  return { x: rand(-60, LW), y: anywhere ? rand(-10, LH) : rand(-24, -4), v: rand(230, 300), len: Math.round(rand(4, 7)), end: rand(HORIZON + 2, LH) };
+}
+
+function makeBolt() {
+  const pts = [];
+  let x = rand(70, 410);
+  const bottom = rand(70, 100);
+  for (let y = 0; y <= bottom; y += Math.round(rand(5, 9))) {
+    pts.push({ x: Math.round(x), y });
+    x += rand(-7, 7);
+  }
+  const k = Math.floor(pts.length / 2);
+  const branch = [pts[k]];
+  let bx = pts[k].x;
+  for (let y = pts[k].y; y < pts[k].y + 26; y += 6) { bx += rand(2, 8); branch.push({ x: Math.round(bx), y }); }
+  return [pts, branch];
+}
+
+function updateWorldVisuals(dt) {
+  const target = inGame ? weather().vis : WEATHER_BY_ID.clair.vis;
+  for (const k of VIS_KEYS) wv[k] += ((target[k] || 0) - wv[k]) * Math.min(1, dt * 0.35);
+  wv.hour = inGame ? hourOf(progress.clock) : 10;
+  wv.dark += (darknessAt(wv.hour) - wv.dark) * Math.min(1, dt * 2);
+  wv.dusk = duskAt(wv.hour);
+
+  // pluie
+  const n = Math.round(wv.rain * (140 + wv.storm * 120));
+  while (drops.length < n) drops.push(newDrop(drops.length < n / 2));
+  if (drops.length > n) drops.length = n;
+  const slant = 0.15 + wv.wind * 0.45;
+  for (let i = 0; i < drops.length; i++) {
+    const d = drops[i];
+    d.y += d.v * dt;
+    d.x += d.v * slant * dt;
+    if (d.y >= d.end) {
+      if (Math.random() < 0.12) addRipple(d.x, d.end, 0.3);
+      drops[i] = newDrop(false);
+    }
+  }
+  rainSoundTimer -= dt;
+  if (rainSoundTimer <= 0) { rainSoundTimer = 0.5; Sound.rain(wv.rain); }
+
+  // rafales de vent
+  if (!gusts.length) for (let i = 0; i < 14; i++) gusts.push({ x: rand(0, LW), y: rand(10, LH - 40), len: Math.round(rand(8, 22)), v: rand(130, 220) });
+  for (const g of gusts) {
+    g.x += g.v * dt * (0.3 + wv.wind);
+    if (g.x > LW + 30) { g.x = rand(-60, -20); g.y = rand(10, LH - 40); }
+  }
+
+  // orage : éclairs et tonnerre
+  storm.flash = Math.max(0, storm.flash - dt * 2.5);
+  storm.boltT -= dt;
+  if (inGame && wv.storm > 0.6) {
+    storm.next -= dt;
+    if (storm.next <= 0) {
+      storm.next = rand(4, 11);
+      storm.flash = 1;
+      storm.bolt = makeBolt();
+      storm.boltT = 0.25;
+      const dist = Math.random();
+      setTimeout(() => Sound.thunder(dist), 200 + dist * 1500);
+    }
+  }
+}
+
 function update(dt) {
   time += dt;
+  invalidateMods();
+  if (inGame) updateClock(dt);
+  updateWorldVisuals(dt);
+  updateWorldHud();
 
   // caisses (en temps réel) et ouverture progressive des yeux au fond du lac
   potTimer -= dt;
@@ -797,7 +1099,7 @@ function update(dt) {
   });
 
   for (const c of clouds) {
-    c.x += c.v * dt;
+    c.x += c.v * dt * (1 + wv.wind * 4);
     if (c.x > LW + 10) { c.x = -c.img.width - 10; c.y = Math.round(rand(8, 60)); }
   }
   for (let i = ripples.length - 1; i >= 0; i--) {
@@ -869,9 +1171,12 @@ function update(dt) {
 // ===========================================================================
 // Décor (pré-rendu une seule fois)
 // ===========================================================================
-const SUN = { x: 372, y: 40 };
 let skyLayer, landLayer, waterLayer, fgLayer, boatSprite, floatSprite, bangSprite, bangAbomSprite;
-let corruptSkyLayer, massLayer, buoySprite;
+let corruptSkyLayer, massLayer;
+let duskSkyLayer, nightSkyLayer, overcastSkyLayer, stormSkyLayer, rainbowLayer, fogLayer;
+let sunSprite, bigHalo, moonSprite, lanternGlow;
+let stars = [];
+let crateSprites = {};
 let clouds = [];
 
 const FISHERMAN = [
@@ -903,9 +1208,29 @@ const FISHERMAN_PAL = {
 };
 const HAND = { x: 64, y: 20 };      // main du pêcheur dans le sprite de la barque
 
-function buildBoat() {
+const LANTERN = { x: 108, y: 7 };    // lanterne de la barque (repère du sprite)
+
+// La veste et le pantalon équipés changent la tenue du pêcheur
+function fishermanPalette() {
+  const pal = { ...FISHERMAN_PAL };
+  const j = equippedItem('jacket');
+  const p = equippedItem('pants');
+  if (j) { pal.r = j.color; pal.R = shadeHex(j.color, 0.7); }
+  if (p) { pal.p = p.color; pal.P = shadeHex(p.color, 0.7); }
+  return pal;
+}
+function refreshBoat() { boatSprite = buildBoat(fishermanPalette()); }
+
+function buildBoat(pal = FISHERMAN_PAL) {
   const cv = makeCanvas(120, 48);
   const c = cv.getContext('2d');
+  // lanterne sur son mât, à l'avant
+  pxRect(c, LANTERN.x, LANTERN.y + 4, 1, 14, '#6e4422');
+  pxRect(c, LANTERN.x - 3, LANTERN.y - 1, 7, 1, '#3a3a40');
+  pxRect(c, LANTERN.x - 2, LANTERN.y, 5, 6, '#4a4a52');
+  pxRect(c, LANTERN.x - 1, LANTERN.y + 1, 3, 4, '#ffd27a');
+  pxRect(c, LANTERN.x, LANTERN.y + 2, 1, 2, '#fff3b8');
+  pxRect(c, LANTERN.x - 2, LANTERN.y + 6, 5, 1, '#3a3a40');
   // seau avec une queue de poisson
   pxRect(c, 80, 15, 9, 10, '#8a8f96');
   pxRect(c, 80, 15, 9, 2, '#b8bec6');
@@ -916,7 +1241,7 @@ function buildBoat() {
   pxRect(c, 20, 18, 12, 2, '#d8604a');
   pxRect(c, 24, 15, 4, 3, '#4a4f55');
   // pêcheur
-  c.drawImage(sprite(FISHERMAN, FISHERMAN_PAL), 46, 6);
+  c.drawImage(sprite(FISHERMAN, pal), 46, 6);
   // coque
   for (let y = 0; y < 15; y++) {
     const half = 54 - Math.max(0, y - 6) * 2;
@@ -931,14 +1256,32 @@ function buildBoat() {
   return cv;
 }
 
+// Un nuage blanc et sa version grise (même forme), pour le temps couvert
 function buildCloud(w, h) {
-  const cv = makeCanvas(w, h);
-  const c = cv.getContext('2d');
   const blobs = [];
   for (let x = 6; x < w - 6; x += 6) blobs.push([x, h - 6 - Math.round(Math.sin((x / w) * Math.PI) * (h - 12) * rand(0.6, 1)), Math.round(rand(5, 7))]);
-  for (const [x, y, r] of blobs) pxDisk(c, x, y + 2, r, '#d3e4f5');
-  for (const [x, y, r] of blobs) pxDisk(c, x, y, r, '#ffffff');
-  pxRect(c, 4, h - 6, w - 8, 3, '#d3e4f5');
+  const paint = (top, under) => {
+    const cv = makeCanvas(w, h);
+    const c = cv.getContext('2d');
+    for (const [x, y, r] of blobs) pxDisk(c, x, y + 2, r, under);
+    for (const [x, y, r] of blobs) pxDisk(c, x, y, r, top);
+    pxRect(c, 4, h - 6, w - 8, 3, under);
+    return cv;
+  };
+  return { img: paint('#ffffff', '#d3e4f5'), grey: paint('#8e98a4', '#6a7480') };
+}
+
+// Halo tramé (anneau d'un pixel sur deux) autour d'un astre
+function haloSprite(r0, r1, col) {
+  const s = r1 * 2 + 1;
+  const cv = makeCanvas(s, s);
+  const c = cv.getContext('2d');
+  for (let y = 0; y < s; y++) {
+    for (let x = 0; x < s; x++) {
+      const d = Math.hypot(x - r1, y - r1);
+      if (d > r0 && d < r1 && (x + y) % 2 === 0) pxRect(c, x, y, 1, 1, col);
+    }
+  }
   return cv;
 }
 
@@ -947,15 +1290,57 @@ function buildScene() {
   skyLayer = makeCanvas(LW, HORIZON);
   let c = skyLayer.getContext('2d');
   ditherGradient(c, 0, 0, LW, HORIZON, ['#3d6ed0', '#5a8fe4', '#7fb2f0', '#a8d2f8', '#d2ecfc']);
-  for (let y = SUN.y - 26; y <= SUN.y + 26; y++) {          // halo tramé
-    for (let x = SUN.x - 26; x <= SUN.x + 26; x++) {
-      const d = Math.hypot(x - SUN.x, y - SUN.y);
-      if (d > 18 && d < 25 && (x + y) % 2 === 0) pxRect(c, x, y, 1, 1, '#e6f3fd');
+
+  // --- ciels de l'aube/crépuscule, de la nuit, du temps couvert et de l'orage
+  duskSkyLayer = makeCanvas(LW, HORIZON);
+  ditherGradient(duskSkyLayer.getContext('2d'), 0, 0, LW, HORIZON, ['#3a3a8a', '#7a4a9a', '#d06a7a', '#f49a5a', '#ffd08a']);
+  nightSkyLayer = makeCanvas(LW, HORIZON);
+  ditherGradient(nightSkyLayer.getContext('2d'), 0, 0, LW, HORIZON, ['#04071a', '#0a1030', '#121a40', '#1a2450', '#24305e']);
+  overcastSkyLayer = makeCanvas(LW, HORIZON);
+  ditherGradient(overcastSkyLayer.getContext('2d'), 0, 0, LW, HORIZON, ['#5e6874', '#707a86', '#848e98', '#98a2aa', '#aab2b8']);
+  stormSkyLayer = makeCanvas(LW, HORIZON);
+  ditherGradient(stormSkyLayer.getContext('2d'), 0, 0, LW, HORIZON, ['#181c24', '#22282f', '#2e343c', '#3a4048', '#464c54']);
+  stars = Array.from({ length: 80 }, (_, i) => ({ x: Math.round(rand(2, LW - 2)), y: Math.round(rand(2, 84) ** 1.05), big: i % 9 === 0, ph: rand(0, 6) }));
+
+  // --- astres
+  sunSprite = makeCanvas(53, 53);
+  c = sunSprite.getContext('2d');
+  c.drawImage(haloSprite(18, 26, '#e6f3fd'), 0, 0);
+  pxDisk(c, 26, 26, 17, '#ffe58a');
+  pxDisk(c, 26, 26, 14, '#fff3b8');
+  pxDisk(c, 24, 24, 8, '#ffffff');
+  bigHalo = haloSprite(26, 36, '#fff6d0');
+  moonSprite = makeCanvas(33, 33);
+  c = moonSprite.getContext('2d');
+  c.drawImage(haloSprite(11, 16, '#4a5a8a'), 0, 0);
+  pxDisk(c, 16, 16, 9, '#e8e4c8');
+  pxDisk(c, 15, 15, 7, '#f6f2dc');
+  for (const [x, y, r] of [[13, 13, 2], [19, 18, 1], [14, 20, 1], [20, 12, 1]]) pxDisk(c, x, y, r, '#d0cbac');
+  lanternGlow = haloSprite(0, 20, '#ffd27a');
+
+  // --- arc-en-ciel
+  rainbowLayer = makeCanvas(LW, HORIZON);
+  c = rainbowLayer.getContext('2d');
+  ['#e04a3a', '#f0a030', '#f5e04a', '#5ad04a', '#3a8ce0', '#9a48c8'].forEach((col, i) => {
+    const r = 118 - i * 3;
+    for (let a = 0; a <= 900; a++) {
+      const t = Math.PI + (a / 900) * Math.PI;
+      pxRect(c, 170 + Math.cos(t) * r, HORIZON + 26 + Math.sin(t) * r, 1, 3, col);
+    }
+  });
+
+  // --- brouillard (bandes tramées, raccord horizontal parfait)
+  fogLayer = makeCanvas(LW, 140);
+  c = fogLayer.getContext('2d');
+  c.fillStyle = '#dfe6ea';
+  for (let y = 0; y < 140; y++) {
+    const dens = clamp(1 - Math.abs(y - 55) / 75, 0, 1);
+    for (let x = 0; x < LW; x++) {
+      const u = (x / LW) * Math.PI * 2;
+      const n = 0.55 + 0.25 * Math.sin(u * 3 + y * 0.09) + 0.2 * Math.sin(u * 7 + y * 0.21 + 1.3);
+      if (dens * n * 1.25 > (BAYER[(y % 4) * 4 + (x % 4)] + 0.5) / 16) c.fillRect(x, y, 1, 1);
     }
   }
-  pxDisk(c, SUN.x, SUN.y, 17, '#ffe58a');
-  pxDisk(c, SUN.x, SUN.y, 14, '#fff3b8');
-  pxDisk(c, SUN.x - 2, SUN.y - 2, 8, '#ffffff');
 
   // --- montagnes et collines
   landLayer = makeCanvas(LW, HORIZON);
@@ -1113,8 +1498,8 @@ function buildScene() {
   c.putImageData(img, 0, 0);
 
   // --- sprites
-  buoySprite = sprite(['.ooo.', 'oyyyo', 'owwwo', 'oyyyo', '.ooo.', '..o..'], { o: '#1e140c', y: '#f08a2a', w: '#f4f0e6' });
-  boatSprite = buildBoat();
+  crateSprites = Object.fromEntries(POTS.map((p) => [p.id, buildCrateSprite(p)]));
+  refreshBoat();
   floatSprite = sprite(['..k..', '..k..', '.oro.', 'orrro', 'owwwo', 'owwwo', '.oko.', '..k..'],
     { k: '#1e140c', o: '#1e140c', r: '#e03a2a', w: '#f4f0e6' });
   const bang = ['.oo.', 'oyyo', 'oyyo', 'oyyo', 'oyyo', '.oo.', 'oyyo', '.oo.'];
@@ -1122,30 +1507,159 @@ function buildScene() {
   bangAbomSprite = sprite(bang, { o: '#1e140c', y: '#d27aff' });
 
   clouds = [
-    { img: buildCloud(58, 22), x: 30, y: 18, v: 3 },
-    { img: buildCloud(40, 18), x: 190, y: 44, v: 4.5 },
-    { img: buildCloud(70, 26), x: 300, y: 12, v: 2.5 },
-    { img: buildCloud(34, 16), x: 420, y: 56, v: 5 },
+    { ...buildCloud(58, 22), x: 30, y: 18, v: 3 },
+    { ...buildCloud(40, 18), x: 190, y: 44, v: 4.5 },
+    { ...buildCloud(70, 26), x: 300, y: 12, v: 2.5 },
+    { ...buildCloud(34, 16), x: 420, y: 56, v: 5 },
+    { ...buildCloud(50, 20), x: 110, y: 30, v: 3.5 },
   ];
 }
 
 // ===========================================================================
 // Rendu de la scène
 // ===========================================================================
-function drawWaterFx() {
-  // reflet du soleil
+function drawReflection(x, alpha, near, far, width) {
+  if (alpha <= 0.02) return;
+  ctx.globalAlpha = alpha;
   for (let i = 0; i < 14; i++) {
     const y = HORIZON + 2 + i * 3;
-    const w = Math.max(2, 14 - i + Math.round(Math.sin(time * 2 + i) * 3));
-    pxRect(ctx, SUN.x - w / 2 + Math.round(Math.sin(time * 1.3 + i * 1.7) * 2), y, w, 1, i < 6 ? '#fff6c8' : '#d8eefa');
+    const w = Math.max(2, width - i + Math.round(Math.sin(time * 2 + i) * 3));
+    pxRect(ctx, x - w / 2 + Math.round(Math.sin(time * 1.3 + i * 1.7) * 2), y, w, 1, i < 6 ? near : far);
   }
+  ctx.globalAlpha = 1;
+}
+
+function drawWaterFx() {
+  const sun = sunPos(wv.hour);
+  const moon = moonPos(wv.hour);
+  // reflets du soleil et de la lune
+  if (sun) drawReflection(sun.x, (1 - wv.dark) * (1 - wv.overcast * 0.9) * (sun.y < HORIZON - 6 ? 1 : 0.4), wv.dusk > 0.4 ? '#ffd0a0' : '#fff6c8', '#d8eefa', 14 + Math.round(wv.sun * 6));
+  if (moon) drawReflection(moon.x, wv.dark * (1 - wv.overcast * 0.85) * 0.8, '#f0ecd0', '#8aa0c8', 9);
   // scintillements
-  for (let i = 0; i < 46; i++) {
+  ctx.globalAlpha = clamp((1 - wv.dark * 0.8) * (1 - wv.overcast * 0.6) * (1 + wv.sun * 0.4), 0, 1);
+  const count = 46 + Math.round(wv.sun * 30);
+  const speed = 1 + wv.wind * 3;
+  for (let i = 0; i < count; i++) {
     const y = HORIZON + 3 + ((i * 29) % (LH - HORIZON - 6));
-    const x = Math.round(((i * 97 + time * (3 + (i % 4) * 2)) % (LW + 20)) - 10);
+    const x = Math.round(((i * 97 + time * speed * (3 + (i % 4) * 2)) % (LW + 20)) - 10);
     const len = 2 + (i % 3) * 2 + Math.floor((y - HORIZON) / 45);
-    pxRect(ctx, x, y, len, 1, y < 160 ? '#c0e8fc' : '#79c0ec');
+    pxRect(ctx, x, y, len, 1, i >= 46 ? '#fffbe0' : y < 160 ? '#c0e8fc' : '#79c0ec');
   }
+  ctx.globalAlpha = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Ciel : heure du jour et météo
+// ---------------------------------------------------------------------------
+function drawSky() {
+  const dark = wv.dark;
+  ctx.drawImage(skyLayer, 0, 0);
+  const sun = sunPos(wv.hour);
+  if (sun && wv.overcast < 0.95) {
+    ctx.globalAlpha = clamp(1 - wv.overcast * 1.1, 0, 1);     // le soleil disparaît derrière les nuages
+    ctx.drawImage(sunSprite, sun.x - 26, sun.y - 26);
+    ctx.globalAlpha = 1;
+    if (wv.sun > 0.02) {
+      ctx.globalAlpha = wv.sun;
+      ctx.drawImage(bigHalo, sun.x - 36, sun.y - 36);
+      ctx.globalAlpha = 1;
+    }
+    if (wv.dusk > 0) {                                   // soleil orangé à l'horizon
+      ctx.globalAlpha = wv.dusk * 0.8;
+      pxDisk(ctx, sun.x, sun.y, 15, '#ffa860');
+      pxDisk(ctx, sun.x - 2, sun.y - 2, 8, '#ffd8a0');
+      ctx.globalAlpha = 1;
+    }
+  }
+  if (wv.dusk > 0.01) { ctx.globalAlpha = wv.dusk * 0.7; ctx.drawImage(duskSkyLayer, 0, 0); }
+  if (wv.overcast > 0.01) { ctx.globalAlpha = wv.overcast * 0.88; ctx.drawImage(overcastSkyLayer, 0, 0); }
+  if (wv.storm > 0.01) { ctx.globalAlpha = wv.storm * 0.8; ctx.drawImage(stormSkyLayer, 0, 0); }
+  for (const cl of clouds) {
+    ctx.globalAlpha = (1 - wv.sun * 0.75) * (1 - wv.overcast * 0.4);
+    ctx.drawImage(cl.img, Math.round(cl.x), cl.y);
+    if (wv.overcast > 0.01) {
+      ctx.globalAlpha = Math.min(1, wv.overcast * 1.2);
+      ctx.drawImage(cl.grey, Math.round(cl.x), cl.y);
+    }
+  }
+  if (wv.rainbow > 0.01) { ctx.globalAlpha = wv.rainbow * 0.5 * (1 - dark); ctx.drawImage(rainbowLayer, 0, 0); }
+  if (dark > 0.01) {
+    ctx.globalAlpha = dark * 0.92;
+    ctx.drawImage(nightSkyLayer, 0, 0);
+    // étoiles qui scintillent (cachées par les nuages)
+    const sa = clamp((dark - 0.25) / 0.75, 0, 1) * (1 - wv.overcast * 0.9);
+    if (sa > 0.02) {
+      for (const s of stars) {
+        const tw = 0.55 + 0.45 * Math.sin(time * 1.7 + s.ph * 3);
+        ctx.globalAlpha = sa * tw;
+        pxRect(ctx, s.x, s.y, 1, 1, s.big ? '#ffffff' : '#c8d4f0');
+        if (s.big && tw > 0.8) { pxRect(ctx, s.x - 1, s.y, 3, 1, '#ffffff'); pxRect(ctx, s.x, s.y - 1, 1, 3, '#ffffff'); }
+      }
+    }
+  }
+  const moon = moonPos(wv.hour);
+  if (moon) {
+    ctx.globalAlpha = clamp(dark * 1.6, 0, 1) * (1 - wv.overcast * 0.75);
+    ctx.drawImage(moonSprite, moon.x - 16, moon.y - 16);
+  }
+  ctx.globalAlpha = 1;
+  // éclair
+  if (storm.boltT > 0 && storm.bolt) {
+    for (const path of storm.bolt) {
+      for (let i = 1; i < path.length; i++) {
+        const a = path[i - 1], b = path[i];
+        ctx.globalAlpha = 0.5;
+        pxLine(ctx, a.x + 1, a.y, b.x + 1, b.y, '#a8a0ff');
+        pxLine(ctx, a.x - 1, a.y, b.x - 1, b.y, '#a8a0ff');
+        ctx.globalAlpha = 1;
+        pxLine(ctx, a.x, a.y, b.x, b.y, '#f8f6ff');
+      }
+    }
+  }
+}
+
+function drawRain() {
+  if (!drops.length) return;
+  const slant = 0.15 + wv.wind * 0.45;
+  ctx.globalAlpha = 0.55;
+  ctx.fillStyle = wv.dark > 0.5 ? '#8aa0c0' : '#c8dcf2';
+  for (const d of drops) {
+    for (let k = 0; k < d.len; k++) ctx.fillRect(Math.round(d.x - k * slant), Math.round(d.y - k), 1, 1);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawGusts() {
+  if (wv.wind < 0.3) return;
+  ctx.globalAlpha = (wv.wind - 0.3) * 0.6;
+  for (const g of gusts) {
+    pxRect(ctx, g.x, g.y, g.len, 1, '#f0f8ff');
+    pxRect(ctx, g.x + g.len, g.y - 1, 2, 1, '#f0f8ff');
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawFog() {
+  if (wv.fog < 0.01) return;
+  const off = Math.floor((time * 5) % LW);
+  ctx.globalAlpha = wv.fog * 0.5;
+  ctx.drawImage(fogLayer, -off, HORIZON - 55);
+  ctx.drawImage(fogLayer, LW - off, HORIZON - 55);
+  ctx.globalAlpha = wv.fog * 0.22;
+  const off2 = Math.floor((time * 9) % LW);
+  ctx.drawImage(fogLayer, off2, HORIZON + 40);
+  ctx.drawImage(fogLayer, off2 - LW, HORIZON + 40);
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = `rgba(214, 222, 230, ${wv.fog * 0.3})`;
+  ctx.fillRect(0, 0, LW, LH);
+}
+
+// Assombrit un calque (même forme) selon la nuit et le temps couvert
+function shadeLayer(cv, x, y, a) {
+  if (a <= 0.01) return;
+  ctx.globalAlpha = Math.min(1, a);
+  ctx.drawImage(shadeOf(cv), x, y);
+  ctx.globalAlpha = 1;
 }
 
 function drawRipples() {
@@ -1219,6 +1733,18 @@ function drawBoat() {
   const ox = BOAT_X - 60;
   const oy = BOAT_Y - 24 + bob;
   ctx.drawImage(boatSprite, ox, oy);
+  shadeLayer(boatSprite, ox, oy, wv.dark * 0.35 + wv.storm * 0.15);
+  // la lanterne s'allume le soir
+  if (wv.dark > 0.05) {
+    const lx = ox + LANTERN.x, ly = oy + LANTERN.y + 3;
+    const flick = 0.85 + Math.sin(time * 9) * 0.08 + Math.sin(time * 23) * 0.05;
+    ctx.globalAlpha = wv.dark * 0.45 * flick;
+    ctx.drawImage(lanternGlow, lx - 20, ly - 20);
+    ctx.globalAlpha = wv.dark;
+    pxRect(ctx, lx - 1, ly - 2, 3, 4, '#ffe08a');
+    pxRect(ctx, lx, ly - 1, 1, 2, '#ffffff');
+    ctx.globalAlpha = 1;
+  }
   const hand = { x: ox + HAND.x, y: oy + HAND.y };
   const tip = rodTip();
   const ctrl = { x: (hand.x + tip.x) / 2 + 2, y: (hand.y + tip.y) / 2 + 6 };
@@ -1285,7 +1811,7 @@ function drawReelGauge() {
   ditherTrack(tx, ty, tw, th);
 
   // barre verte, arrondie et légèrement translucide
-  const barH = Math.round(MG.barSize * th);
+  const barH = Math.round(m.barSize * th);
   const barY = ty + th - barH - Math.round(m.bar * th);
   ctx.globalAlpha = m.inZone ? 0.95 : 0.7;
   pxRound(tx, barY, tw, barH, '#5cc84c');
@@ -1392,30 +1918,58 @@ function drawLakeEye(e) {
 
 function drawCorruptionSky(c) {
   if (c <= 0) return;
-  ctx.globalAlpha = c * 0.85;
+  ctx.globalAlpha = c * 0.85 * (1 - wv.dark * 0.6);
   ctx.drawImage(corruptSkyLayer, 0, 0);
-  ctx.globalAlpha = c * 0.8;                       // soleil malade
-  pxDisk(ctx, SUN.x, SUN.y, 15, '#b8f0a0');
-  pxDisk(ctx, SUN.x, SUN.y, 6, '#4a1a5a');
+  const astre = sunPos(wv.hour) || moonPos(wv.hour);
+  if (astre) {
+    ctx.globalAlpha = c * 0.8;                     // astre malade
+    pxDisk(ctx, astre.x, astre.y, 15, '#b8f0a0');
+    pxDisk(ctx, astre.x, astre.y, 6, '#4a1a5a');
+  }
   ctx.globalAlpha = 1;
 }
 
 // ---------------------------------------------------------------------------
-// Caisses à l'eau
+// Caisses à l'eau : de vraies caisses qui flottent, à moitié immergées
 // ---------------------------------------------------------------------------
+const CRATE_WATERLINE = 10;   // ligne de flottaison dans le sprite (24×18)
+
+function crateBob(i) {
+  return Math.round(Math.sin(time * (1.7 + wv.storm) + i * 2) * (1 + wv.wind * 0.8 + wv.storm));
+}
+
 function drawPots() {
   progress.pots.forEach((p, i) => {
     if (!p) return;
     const s = POT_SLOTS[i];
-    const bob = Math.round(Math.sin(time * 1.7 + i * 2));
-    ctx.globalAlpha = 0.4;                        // la caisse, sous l'eau
-    pxRect(ctx, s.x - 8, s.y + 3, 16, 8, '#0e2a50');
-    pxRect(ctx, s.x - 7, s.y + 4, 14, 6, potType(p).color);
+    const bob = crateBob(i);
+    const spr = crateSprites[p.type];
+    const x = s.x - 12, top = s.y - CRATE_WATERLINE + bob, wl = CRATE_WATERLINE;
+    const tilt = Math.round(Math.sin(time * 1.1 + i) * (0.6 + wv.wind));
+    ctx.globalAlpha = 0.3;                        // ombre dans l'eau
+    pxEllipse(ctx, s.x, s.y + 5, 14, 3, '#0e2a50');
     ctx.globalAlpha = 1;
-    pxRect(ctx, s.x, s.y - 1 + bob, 1, 5, '#d8c49a');                 // corde
-    ctx.drawImage(buoySprite, s.x - 3, s.y - 7 + bob);
-    pxRect(ctx, s.x - 4, s.y + bob, 9, 1, '#e2f6ff');
-    if (potFull(p)) ctx.drawImage(bangSprite, s.x - 2, s.y - 20 + bob - Math.round(Math.abs(Math.sin(time * 6)) * 2));
+    ctx.drawImage(spr, 0, 0, 24, wl, x + tilt, top, 24, wl);                    // partie émergée
+    ctx.globalAlpha = 0.4;
+    ctx.drawImage(spr, 0, wl, 24, 18 - wl, x + tilt, top + wl, 24, 18 - wl);  // partie immergée
+    ctx.globalAlpha = 1;
+    shadeLayer(spr, x + tilt, top, wv.dark * 0.5 + wv.overcast * 0.15);
+    // ligne de flottaison et petite écume
+    ctx.globalAlpha = 0.85;
+    pxRect(ctx, x - 1 + tilt, top + wl, 26, 1, '#e2f6ff');
+    const f = Math.floor(time * 3 + i) % 3;
+    pxRect(ctx, x - 3 - f + tilt, top + wl + 1, 2, 1, '#e2f6ff');
+    pxRect(ctx, x + 25 + f + tilt, top + wl + 1, 2, 1, '#e2f6ff');
+    ctx.globalAlpha = 1;
+  });
+}
+
+// le « ! » des caisses pleines, toujours bien visible (même de nuit)
+function drawPotMarkers() {
+  progress.pots.forEach((p, i) => {
+    if (!p || !potFull(p)) return;
+    const s = POT_SLOTS[i];
+    ctx.drawImage(bangSprite, s.x - 2, s.y - CRATE_WATERLINE + crateBob(i) - 12 - Math.round(Math.abs(Math.sin(time * 6)) * 2));
   });
 }
 
@@ -1423,20 +1977,30 @@ function potAt(clientX, clientY) {
   const r = canvas.getBoundingClientRect();
   const x = ((clientX - r.left) / r.width) * LW;
   const y = ((clientY - r.top) / r.height) * LH;
-  return progress.pots.findIndex((p, i) => p && Math.abs(x - POT_SLOTS[i].x) < 9 && y > POT_SLOTS[i].y - 22 && y < POT_SLOTS[i].y + 10);
+  return progress.pots.findIndex((p, i) => p && Math.abs(x - POT_SLOTS[i].x) < 14 && y > POT_SLOTS[i].y - 26 && y < POT_SLOTS[i].y + 10);
 }
 
 function render() {
   const c = inGame ? corruption() : 0;
-  ctx.drawImage(skyLayer, 0, 0);
-  for (const cl of clouds) ctx.drawImage(cl.img, Math.round(cl.x), cl.y);
+  const dark = wv.dark;
+  const gloom = wv.overcast * 0.2 + wv.storm * 0.15;
+  drawSky();
   drawCorruptionSky(c);
   ctx.drawImage(landLayer, 0, 0);
+  shadeLayer(landLayer, 0, 0, dark * 0.6 + gloom);
+  if (wv.dusk > 0) {
+    ctx.fillStyle = `rgba(255, 120, 70, ${wv.dusk * 0.1})`;
+    ctx.fillRect(0, 0, LW, HORIZON);
+  }
   if (c > 0) {
     ctx.fillStyle = `rgba(50, 14, 70, ${c * 0.3})`;
     ctx.fillRect(0, 0, LW, HORIZON);
   }
   ctx.drawImage(waterLayer, 0, HORIZON);
+  if (gloom > 0.01) {
+    ctx.fillStyle = `rgba(60, 70, 86, ${gloom * 1.3})`;
+    ctx.fillRect(0, HORIZON, LW, LH - HORIZON);
+  }
   if (c > 0) {
     ctx.fillStyle = `rgba(26, 6, 40, ${c * 0.35})`;
     ctx.fillRect(0, HORIZON, LW, LH - HORIZON);
@@ -1445,6 +2009,11 @@ function render() {
   ctx.globalAlpha = 0.38 + c * 0.42;
   ctx.drawImage(massLayer, 0, HORIZON + Math.round(Math.sin(time * 0.4) * 1.5));
   ctx.globalAlpha = 1;
+  // la nuit tombe sur le lac (les yeux, eux, brillent dans le noir)
+  if (dark > 0.01) {
+    ctx.fillStyle = `rgba(4, 8, 30, ${dark * 0.55})`;
+    ctx.fillRect(0, HORIZON, LW, LH - HORIZON);
+  }
   if (inGame) LAKE_EYES.forEach(drawLakeEye);
   drawWaterFx();
   drawRipples();
@@ -1452,6 +2021,23 @@ function render() {
   drawBoat();
   drawFloatAndLine();
   ctx.drawImage(fgLayer, 0, 0);
+  shadeLayer(fgLayer, 0, 0, dark * 0.6 + gloom);
+  if (inGame) drawPotMarkers();
+  drawRain();
+  drawGusts();
+  drawFog();
+  if (wv.sun > 0.01) {
+    ctx.fillStyle = `rgba(255, 214, 120, ${wv.sun * 0.07 * (1 - dark)})`;
+    ctx.fillRect(0, 0, LW, LH);
+  }
+  if (wv.dusk > 0) {
+    ctx.fillStyle = `rgba(255, 130, 70, ${wv.dusk * 0.06})`;
+    ctx.fillRect(0, 0, LW, LH);
+  }
+  if (storm.flash > 0) {
+    ctx.fillStyle = `rgba(228, 232, 255, ${storm.flash * 0.45})`;
+    ctx.fillRect(0, 0, LW, LH);
+  }
   if (c > 0) {
     ctx.fillStyle = `rgba(40, 10, 60, ${c * 0.12})`;
     ctx.fillRect(0, 0, LW, LH);
@@ -1478,11 +2064,14 @@ function showCatchCard() {
   $('cc-name').textContent = fishName(r.f, r.abom);
   $('cc-dims').textContent = `${fmtCm(r.size)}  ·  ${fmtKg(r.weight)}`;
   $('cc-money').innerHTML = `+ ${fmtNum(r.money)} ${coinImg()}` +
+    (r.goldBonus > 0 ? ` <span class="cc-perfect">(or +${Math.round(r.goldBonus * 100)} %)</span>` : '') +
     (r.perfect ? ` <span class="cc-perfect">(+${fmtNum(r.bonus)} Perfect)</span>` : '');
   $('cc-loot').hidden = !r.loot;
   if (r.loot) {
     $('cc-loot').innerHTML = `<img src="${itemIcon('bait', r.loot.bait)}" alt=""> Coffre : ${r.loot.qty} × ${r.loot.bait.name}`;
   }
+  $('cc-item').hidden = !r.drop;
+  if (r.drop) $('cc-item').innerHTML = dropHtml(r.drop);
   const badges = [];
   if (r.newSpecies) badges.push('Nouvelle entrée dans le carnet !');
   if (r.sizeRecord) badges.push('Record de taille !');
@@ -1525,6 +2114,34 @@ function updateHud() {
   $('hud-count').textContent = fmtNum(progress.stats.caught);
   const b = bait();
   $('hud-bait').textContent = b.pack === 0 ? b.name : `${b.name} (${progress.baits[b.id] || 0})`;
+  updateWorldHud(true);
+}
+
+// Encart jour / heure / météo (mis à jour seulement quand quelque chose change)
+let worldHudKey = '';
+const weatherLabel = () => (isNight() && weather().id === 'clair' ? 'Nuit calme' : weather().name);
+function updateWorldHud(force = false) {
+  if (!inGame) return;
+  const w = weather();
+  const night = isNight();
+  const key = `${dayOf(progress.clock)}|${fmtHour(progress.clock)}|${w.id}|${night}`;
+  if (!force && key === worldHudKey) return;
+  worldHudKey = key;
+  $('hw-day').textContent = `Jour ${dayOf(progress.clock)} · ${fmtHour(progress.clock)}`;
+  $('hw-icon').src = weatherIcon(night && w.id === 'clair' ? 'nuit' : w.id);
+  $('hw-weather').textContent = weatherLabel() + (night && w.id !== 'clair' ? ' · nuit' : '');
+  const lines = [...fxLines(w.fx), ...(night ? fxLines(NIGHT.fx) : [])];
+  $('hw-fx').innerHTML = lines.map((l) => `<div>${l}</div>`).join('');
+  $('hw-fx').hidden = !lines.length;
+}
+
+// Couleur de texte lisible pour une rareté (sur fond sombre)
+const rarText = (tier) => shadeHex(RARITIES[tier].color, 1.35);
+
+function dropHtml(d) {
+  const it = itemDef(d.inst);
+  return `<img src="${equipIcon(it)}" alt=""> Objet trouvé : <b style="color:${rarText(it.tier)}">${it.name}</b>` +
+    (d.sold ? ` <small>(inventaire plein : vendu ${fmtNum(d.sold)} ${coinImg()})</small>` : '');
 }
 
 let confirmNew = false;
@@ -1535,7 +2152,7 @@ function refreshMenu() {
   $('btn-new').textContent = 'Nouvelle partie';
   $('btn-continue').disabled = !save;
   $('save-info').innerHTML = save
-    ? `Partie en cours : ${save.stats.caught} poisson${save.stats.caught > 1 ? 's' : ''} · ${fmtNum(save.money)} ${coinImg()}`
+    ? `Partie en cours : jour ${dayOf(save.clock)} · ${save.stats.caught} poisson${save.stats.caught > 1 ? 's' : ''} · ${fmtNum(save.money)} ${coinImg()}`
     : '';
 }
 
@@ -1545,6 +2162,12 @@ function enterGame() {
   $('menu').hidden = true;
   $('hud').hidden = false;
   $('catch-card').hidden = true;
+  invalidateMods();
+  refreshBoat();
+  if (!progress.weather) setWeather('clair', false);
+  // pas de transition visuelle en arrivant : le ciel est directement à la bonne heure et à la bonne météo
+  Object.assign(wv, { ...Object.fromEntries(VIS_KEYS.map((k) => [k, weather().vis[k] || 0])), dark: darknessAt(hourOf(progress.clock)) });
+  drops.length = 0;
   updateHud();
   setState('idle');
   say('Cliquez pour lancer la ligne');
@@ -1554,6 +2177,7 @@ function showMenu() {
   closePanel();
   if (inGame) writeSave();
   inGame = false;
+  Sound.rain(0);
   $('menu').hidden = false;
   $('hud').hidden = true;
   $('catch-card').hidden = true;
@@ -1903,7 +2527,121 @@ function drawPortrait() {
   pxRect(c, tip.x - 2, tip.y + 26, 5, 1, '#1e140c');
 }
 
+// ---------------------------------------------------------------------------
+// Profil : onglets « Fiche » et « Inventaire »
+// ---------------------------------------------------------------------------
+let sheetTab = 'gear';
+let invFilter = 'all';
+let sellConfirm = false;
+
 function renderSheet() {
+  document.querySelectorAll('[data-stab]').forEach((b) => b.classList.toggle('active', b.dataset.stab === sheetTab));
+  $('inv-count').textContent = `(${progress.items.length})`;
+  $('sheet-main').hidden = sheetTab !== 'gear';
+  $('sheet-inv').hidden = sheetTab !== 'inv';
+  if (sheetTab === 'inv') renderInventory(); else renderSheetMain();
+}
+
+document.querySelectorAll('[data-stab]').forEach((b) => b.addEventListener('click', () => {
+  sheetTab = b.dataset.stab;
+  sellConfirm = false;
+  Sound.click();
+  renderSheet();
+}));
+
+const ghostItem = (slot) => ({ id: `ghost-${slot}`, slot, tier: 0, color: '#5a6290', accent: '#454c78' });
+
+function fxTotalLines(m) {
+  return Object.entries(m).filter(([k, v]) => FX[k] && (FX[k].mul ? Math.abs(v - 1) > 1e-6 : Math.abs(v) > 1e-6)).map(([k, v]) => FX[k].label(v));
+}
+
+function invSort(a, b) {
+  const A = itemDef(a), B = itemDef(b);
+  return (isEquipped(b) - isEquipped(a)) || (B.tier - A.tier) ||
+    (SLOTS.findIndex((s) => s.id === A.slot) - SLOTS.findIndex((s) => s.id === B.slot)) || (a.uid - b.uid);
+}
+
+function renderInventory() {
+  // emplacements équipés
+  $('inv-slots').innerHTML = SLOTS.map((sl) => {
+    const it = equippedItem(sl.id);
+    return `
+      <div class="slot inv-slot ${it ? '' : 'empty'}" ${it ? `style="--rc:${RARITIES[it.tier].color}"` : ''}>
+        <div class="slot-top"><img class="${it ? '' : 'ghost'}" src="${equipIcon(it || ghostItem(sl.id))}" alt="">
+          <div class="inv-slot-txt"><div class="slot-label">${sl.name}</div>
+            <div class="slot-name" ${it ? `style="color:${rarText(it.tier)}"` : ''}>${it ? it.name : 'Aucun'}</div></div>
+          ${it ? `<button class="btn" data-unequip="${sl.id}">Retirer</button>` : ''}</div>
+        ${it ? `<div class="eff">${fxLines(it.fx).join(' · ')}</div>` : ''}
+      </div>`;
+  }).join('');
+
+  // effets actifs : total, puis le détail des sources
+  const sources = activeSources();
+  const total = fxTotalLines(sumFx(sources));
+  $('inv-bonus').innerHTML = (total.length ? `<div class="eff">${total.join('<br>')}</div>` : '<div class="stock">Aucun effet actif.</div>') +
+    `<div class="inv-sources">${sources.map((s) => `<span class="src"><img src="${s.icon}" alt="">${s.name}</span>`).join('')}</div>`;
+
+  // filtres
+  const counts = Object.fromEntries(SLOTS.map((s) => [s.id, progress.items.filter((i) => itemDef(i).slot === s.id).length]));
+  $('inv-filter').innerHTML = [['all', 'Tout', progress.items.length], ...SLOTS.map((s) => [s.id, s.plural, counts[s.id]])]
+    .map(([id, name, n]) => `<button class="btn ${invFilter === id ? 'active' : ''}" data-inv-filter="${id}">${name} (${n})</button>`).join('');
+  $('inv-cap').textContent = `${progress.items.length} / ${ITEM_CAP}`;
+
+  // objets
+  const list = progress.items.filter((i) => invFilter === 'all' || itemDef(i).slot === invFilter).sort(invSort);
+  $('inv-list').innerHTML = list.length ? list.map((inst) => {
+    const it = itemDef(inst);
+    const eq = isEquipped(inst);
+    return `
+      <div class="item inv-item ${eq ? 'equipped' : ''}" style="--rc:${RARITIES[it.tier].color}">
+        <img class="item-icon" src="${equipIcon(it)}" alt="">
+        <div class="info"><b style="color:${rarText(it.tier)}">${it.name}</b>
+          <small>${SLOT_BY_ID[it.slot].name} · ${RARITIES[it.tier].name}${eq ? ' · <span class="inv-eq">Équipé</span>' : ''}</small>
+          <span class="eff">${fxLines(it.fx).join(' · ')}</span>
+          <small class="inv-desc">${it.desc}</small></div>
+        <div class="actions">
+          ${eq ? `<button class="btn" data-unequip="${it.slot}">Retirer</button>` : `<button class="btn" data-equip-item="${inst.uid}">Équiper</button>`}
+          <button class="btn" data-sell-item="${inst.uid}" ${eq ? 'disabled title="Retirez-le d\'abord"' : ''}>Vendre ${fmtNum(itemValue(it))} ${coinImg()}</button>
+        </div>
+      </div>`;
+  }).join('') : `<p class="inv-empty">${progress.items.length ? 'Aucun objet dans cette catégorie.' :
+    `Votre sac est vide.<br><small>Les poissons et les caisses rapportent parfois un objet (${fmtPct(itemDropChance(0, false, 'fish'))} sur un poisson commun, davantage sur les poissons rares et les abominations).</small>`}</p>`;
+
+  // vente groupée des objets communs non équipés
+  const commons = progress.items.filter((i) => itemDef(i).tier === 0 && !isEquipped(i));
+  const sum = commons.reduce((s, i) => s + itemValue(itemDef(i)), 0);
+  const btn = $('inv-sell-commons');
+  btn.disabled = !commons.length;
+  btn.innerHTML = !commons.length ? 'Aucun objet commun à vendre'
+    : sellConfirm ? `Confirmer la vente de ${commons.length} objet(s) ?`
+    : `Vendre les objets communs (${commons.length}) : +${fmtNum(sum)} ${coinImg()}`;
+}
+
+$('sheet-inv').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b || b.disabled) return;
+  const d = b.dataset;
+  if (d.invFilter) { invFilter = d.invFilter; Sound.click(); }
+  else if (d.equipItem) { equipItem(+d.equipItem); Sound.click(); }
+  else if (d.unequip) { unequipSlot(d.unequip); Sound.click(); }
+  else if (d.sellItem) {
+    if (sellItems([+d.sellItem])) Sound.sell();
+    writeSave();
+    updateHud();
+    checkAchievements();
+  } else if (b.id === 'inv-sell-commons') {
+    if (!sellConfirm) { sellConfirm = true; Sound.click(); renderInventory(); return; }
+    const uids = progress.items.filter((i) => itemDef(i).tier === 0 && !isEquipped(i)).map((i) => i.uid);
+    if (sellItems(uids)) Sound.sell();
+    writeSave();
+    updateHud();
+    checkAchievements();
+  } else return;
+  sellConfirm = false;
+  renderSheet();
+});
+
+function renderSheetMain() {
   const r = rod();
   const b = bait();
   const rodChips = progress.rods.map((id) =>
@@ -1924,6 +2662,15 @@ function renderSheet() {
         <div><div class="slot-label">Appât</div><div class="slot-name">${b.name}${b.pack ? ` — ${progress.baits[b.id] || 0} restant(s)` : ''}</div></div></div>
       <div class="eff">${baitEffects(b)}</div>
       <div class="chips">${baitChips}</div>
+    </div>
+    <div class="slot">
+      <div class="slot-label">Tenue</div>
+      <div class="outfit">${SLOTS.map((sl) => {
+        const it = equippedItem(sl.id);
+        return `<div class="outfit-cell" title="${sl.name} : ${it ? it.name : 'aucun'}"><img class="${it ? '' : 'ghost'}" src="${equipIcon(it || ghostItem(sl.id))}" alt="">
+          <span ${it ? `style="color:${rarText(it.tier)}"` : ''}>${it ? it.name : sl.name}</span></div>`;
+      }).join('')}</div>
+      <div class="chips"><button class="btn" data-goto-inv>Ouvrir l'inventaire (${progress.items.length})</button></div>
     </div>`;
 
   const st = progress.stats;
@@ -1945,6 +2692,17 @@ function renderSheet() {
     ['Coffres récupérés', fmtNum(st.chests || 0)],
     ['Plus lourde prise', best],
     ['Entrées du carnet', `${known} / ${dexTotal()}`],
+    ['section', 'Le temps qui passe'],
+    ['Jour', `${dayOf(progress.clock)} (${fmtHour(progress.clock)})`],
+    ['Météo', weatherLabel()],
+    ['Effets du moment', [...fxLines(weather().fx), ...(isNight() ? fxLines(NIGHT.fx) : [])].join(' · ') || '—'],
+    ['section', 'Objets'],
+    ['Objets trouvés', fmtNum(st.itemsFound || 0)],
+    ['Objets vendus', `${fmtNum(st.itemsSold || 0)} (${fmtNum(st.itemsEarned || 0)} ${coinImg()})`],
+    ['Inventaire', `${progress.items.length} / ${ITEM_CAP}`],
+    ['Objet sur un poisson commun', fmtPct(itemDropChance(0, false, 'fish'))],
+    ['Objet sur un poisson légendaire', fmtPct(itemDropChance(4, false, 'fish'))],
+    ['Objet par crustacé (commun)', fmtPct(itemDropChance(0, false, 'pot'))],
     ['section', 'Caisses'],
     ['Caisses relevées', fmtNum(st.potsCollected || 0)],
     ['Crustacés attrapés', fmtNum(st.crusts || 0)],
@@ -1956,10 +2714,10 @@ function renderSheet() {
     ['Pièces en poche', `${fmtNum(progress.money)} ${coinImg()}`],
     ['Pièces gagnées', `${fmtNum(st.earned)} ${coinImg()}`],
     ['Pièces dépensées', `${fmtNum(st.spent)} ${coinImg()}`],
-    ['section', 'Chances actuelles (avec cet appât)'],
+    ['section', 'Chances actuelles (appât, équipement, météo)'],
     ...oddsByTier.map(([n, p]) => [n, fmtPct(p)]),
     ['Abomination', fmtPct(abomChance())],
-    ['section', `Contenu des coffres (${fmtPct(MG.chestChance)} par remontée, 1 à 20 appâts)`],
+    ['section', `Contenu des coffres (${fmtPct(chestChance())} par remontée, 1 à 20 appâts)`],
     ...chestOdds().map(([b, p]) => [b.name, fmtPct(p)]),
   ];
   $('sheet-stats').innerHTML = rows.map(([a, v]) =>
@@ -1967,7 +2725,15 @@ function renderSheet() {
   drawPortrait();
 }
 
-$('sheet-gear').addEventListener('click', onGearClick);
+$('sheet-gear').addEventListener('click', (e) => {
+  if (e.target.closest('[data-goto-inv]')) {
+    sheetTab = 'inv';
+    Sound.click();
+    renderSheet();
+    return;
+  }
+  onGearClick(e);
+});
 
 // ---------------------------------------------------------------------------
 // Panneau des caisses à crustacés
@@ -2068,6 +2834,8 @@ function renderPotRecap() {
   const t = POT_BY_ID[lp.type];
   const total = lp.results.reduce((s, r) => s + r.money, 0);
   $('pot-title').textContent = `Relevé : ${t.name}`;
+  $('pot-items').hidden = !lp.drops?.length;
+  $('pot-items').innerHTML = (lp.drops || []).map((d) => `<div class="cc-loot">${dropHtml(d)}</div>`).join('');
   $('pot-total').innerHTML = lp.results.length ? `Total : + ${fmtNum(total)} ${coinImg()}` : '';
   $('pot-list').innerHTML = lp.results.length
     ? lp.results.map((r, k) => {
@@ -2137,6 +2905,17 @@ const ACHIEVEMENTS = [
   { id: 'eyes_open',    name: 'Ils ouvrent les yeux',      desc: 'Corrompre le lac à moitié.', secret: true,          test: () => corruption() >= 0.5 },
   { id: 'eyes_all',     name: 'Le lac vous regarde',       desc: 'Corrompre totalement le lac.', secret: true,        test: () => corruption() >= 1 },
   { id: 'complete',     name: 'Carnet complet',            desc: 'Remplir toutes les pages du carnet.',               test: (p) => Object.keys(p.dex).length >= dexTotal() },
+  { id: 'first_item',   name: 'Trouvaille',                desc: 'Trouver votre premier objet.',                      test: (p) => (p.stats.itemsFound || 0) >= 1 },
+  { id: 'epic_item',    name: 'Belle prise',               desc: 'Trouver un objet épique.',                          test: (p, ev) => ev.type === 'item' && ev.item.tier >= 3 },
+  { id: 'legend_item',  name: 'Relique des profondeurs',   desc: 'Trouver un objet légendaire.',                      test: (p, ev) => ev.type === 'item' && ev.item.tier >= 4 },
+  { id: 'full_gear',    name: 'Paré pour la pêche',        desc: 'Porter un objet dans chacun des 5 emplacements.',   test: () => SLOTS.every((s) => equippedItem(s.id)) },
+  { id: 'sell_item',    name: 'Brocanteur',                desc: 'Vendre un objet.',                                  test: (p) => (p.stats.itemsSold || 0) >= 1 },
+  { id: 'day_7',        name: 'Une semaine au lac',        desc: 'Atteindre le 7e jour.',                             test: (p) => dayOf(p.clock) >= 7 },
+  { id: 'day_30',       name: 'Ermite du lac',             desc: 'Atteindre le 30e jour.',                            test: (p) => dayOf(p.clock) >= 30 },
+  { id: 'night_fish',   name: 'Pêcheur nocturne',          desc: 'Pêcher un poisson en pleine nuit.',                 test: (p, ev) => isFishCatch(ev) && isNight() },
+  { id: 'rain_legend',  name: 'Chanter sous la pluie',     desc: 'Pêcher un poisson légendaire sous la pluie.',       test: (p, ev) => isFishCatch(ev) && ev.f.tier === 4 && weather().id === 'pluie' },
+  { id: 'storm_abom',   name: "Enfant de l'orage",         desc: "Pêcher une abomination pendant l'orage.",            test: (p, ev) => isCatch(ev) && ev.abom && weather().id === 'orage' },
+  { id: 'rainbow',      name: "Au pied de l'arc-en-ciel",  desc: 'Voir un arc-en-ciel sur le lac.',                   test: () => weather().id === 'arcenciel' },
 ];
 
 const toastQueue = [];
@@ -2151,7 +2930,7 @@ function checkAchievements(ev = {}) {
     try { ok = a.test(progress, ev); } catch { ok = false; }
     if (ok) {
       progress.achievements[a.id] = Date.now();
-      toastQueue.push(a);
+      toastQueue.push({ icon: ICONS.trophy, label: 'Succès débloqué !', title: a.name, sound: () => Sound.achievement() });
       changed = true;
     }
   }
@@ -2162,15 +2941,21 @@ function checkAchievements(ev = {}) {
   }
 }
 
+// Notifications : succès, météo, jour/nuit. t = { icon, label, title, sub?, sound? }
+function pushToast(t) {
+  toastQueue.push(t);
+  nextToast();
+}
+
 function nextToast() {
   if (toastBusy || !toastQueue.length) return;
   toastBusy = true;
-  const a = toastQueue.shift();
+  const t = toastQueue.shift();
   const el = document.createElement('div');
   el.className = 'toast box';
-  el.innerHTML = `<img src="${ICONS.trophy}" alt=""><div><small>Succès débloqué !</small>${a.name}</div>`;
+  el.innerHTML = `<img src="${t.icon}" alt=""><div><small>${t.label}</small>${t.title}${t.sub ? `<span class="toast-sub">${t.sub}</span>` : ''}</div>`;
   $('toasts').appendChild(el);
-  Sound.achievement();
+  t.sound?.();
   setTimeout(() => { toastBusy = false; nextToast(); }, 1400);
   setTimeout(() => el.remove(), 4200);
 }
@@ -2276,6 +3061,10 @@ function syncAdmin() {
       <optgroup label="Abominations">${fishSpecies().map((f) => `<option value="${f.id}:abom">${f.abomName}</option>`).join('')}</optgroup>`;
   }
   sel.value = admin.forced;
+  const ws = $('admin-weather');
+  if (!ws.options.length) ws.innerHTML = WEATHERS.map((w) => `<option value="${w.id}">${w.name}</option>`).join('');
+  ws.value = weather().id;
+  for (const id of ['admin-weather', 'admin-hour', 'admin-night', 'admin-day', 'admin-item']) $(id).disabled = !inGame;
   const c = corruption();
   $('admin-corrupt').value = Math.round(c * 100);
   $('admin-corrupt-val').textContent = `${Math.round(c * 100)} %`;
@@ -2316,6 +3105,32 @@ $('admin-money').addEventListener('click', () => {
   writeSave();
   updateHud();
   Sound.buy();
+});
+$('admin-weather').addEventListener('change', (e) => {
+  setWeather(e.target.value);
+  writeSave();
+});
+// Avance l'horloge (la météo de jour impossible la nuit est corrigée à l'image suivante)
+function adminSkipTo(targetHour) {
+  const h = hourOf(progress.clock);
+  const delta = targetHour === null ? 1 : ((targetHour - h + 24) % 24) || 24;
+  progress.clock += (delta / 24) * DAY_LEN;
+  if (progress.weather) progress.weather.until = Math.max(progress.weather.until, progress.clock + 60);
+  invalidateMods();
+  updateWorldHud(true);
+  writeSave();
+  $('admin-hint').textContent = `Jour ${dayOf(progress.clock)}, ${fmtHour(progress.clock)}.`;
+}
+$('admin-hour').addEventListener('click', () => adminSkipTo(null));
+$('admin-night').addEventListener('click', () => adminSkipTo(22));
+$('admin-day').addEventListener('click', () => adminSkipTo(8));
+$('admin-item').addEventListener('click', () => {
+  const d = addItem(rollItem(4, true));
+  const it = itemDef(d.inst);
+  writeSave();
+  updateHud();
+  Sound.itemFound(it.tier);
+  $('admin-hint').textContent = d.sold ? `Inventaire plein : ${it.name} vendu.` : `Objet ajouté : ${it.name} (${RARITIES[it.tier].name}).`;
 });
 $('admin-pots').addEventListener('click', () => {
   let n = 0;
@@ -2401,6 +3216,11 @@ window.addEventListener('keydown', (e) => {
   if (openPanelName === 'book') {
     if (e.code === 'ArrowLeft') turnTo(spread - 1);
     if (e.code === 'ArrowRight') turnTo(spread + 1);
+  }
+  if (e.code === 'KeyI') {
+    if (openPanelName === 'sheet' && sheetTab === 'inv') closePanel();
+    else { sheetTab = 'inv'; if (openPanelName === 'sheet') renderSheet(); else openPanel('sheet'); }
+    return;
   }
   const target = { KeyC: 'book', KeyB: 'shop', KeyP: 'sheet', KeyK: 'crates', KeyT: 'achievements' }[e.code];
   if (target) {

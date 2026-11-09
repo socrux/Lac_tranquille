@@ -331,7 +331,53 @@ const Sound = (() => {
       if (!ready()) return;
       noise({ t: now(), dur: 0.16, vol: 0.18, type: 'bandpass', freq: 1500, freqTo: 3500, q: 0.8, attack: 0.02 });
     },
+    // objet trouvé : petit carillon (plus riche pour un objet rare)
+    itemFound(tier = 0) {
+      if (!ready()) return;
+      const t = now();
+      const notes = [79, 84, 88, 91, 96].slice(0, 2 + Math.min(3, tier));
+      notes.forEach((n, i) => tone({ t: t + i * 0.08, f: mtof(n), dur: 0.35, type: 'triangle', vol: 0.07, send: 0.5 }));
+      tone({ t: t + notes.length * 0.08, f: mtof(notes[notes.length - 1] + 12), dur: 0.6, type: 'sine', vol: 0.04, send: 0.6 });
+    },
+    // vente d'un objet : tintement de pièces
+    sell() {
+      if (!ready()) return;
+      const t = now();
+      for (let i = 0; i < 3; i++) tone({ t: t + i * 0.06, f: 1800 + Math.random() * 600, dur: 0.08, type: 'square', vol: 0.03 });
+    },
+    // tonnerre : grondement grave (distance = délai et douceur)
+    thunder(dist = 0.5) {
+      if (!ready()) return;
+      const t = now();
+      noise({ t, dur: 0.35, vol: 0.45 * (1 - dist * 0.6), type: 'lowpass', freq: 2400 - dist * 1600, freqTo: 300, attack: 0.01 });
+      noise({ t: t + 0.05, dur: 2.8, vol: 0.5, type: 'lowpass', freq: 220, freqTo: 60, attack: 0.15 });
+      noise({ t: t + 0.4, dur: 1.8, vol: 0.3, type: 'lowpass', freq: 160, freqTo: 50, attack: 0.3 });
+    },
+    // pluie continue : niveau entre 0 (aucune) et 1 (averse)
+    rain(level) {
+      if (!ac) return;
+      if (!rainGain) {
+        const src = ac.createBufferSource();
+        src.buffer = noiseBuf;
+        src.loop = true;
+        const hp = ac.createBiquadFilter();
+        hp.type = 'highpass';
+        hp.frequency.value = 900;
+        const lp = ac.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.value = 5200;
+        rainGain = ac.createGain();
+        rainGain.gain.value = 0;
+        src.connect(hp);
+        hp.connect(lp);
+        lp.connect(rainGain);
+        rainGain.connect(sfxBus);
+        src.start();
+      }
+      rainGain.gain.setTargetAtTime(level * 0.09, ac.currentTime, 0.4);
+    },
   };
+  let rainGain = null;
 
   return { init, set, settings, ...sfx };
 })();

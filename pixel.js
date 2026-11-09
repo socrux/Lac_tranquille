@@ -906,3 +906,198 @@ function itemIcon(kind, item) {
   if (item.id === 'lumi') for (const [x, y] of [[2, 3], [13, 4], [3, 13], [13, 12]]) pxRect(c, x, y, 1, 1, '#bfffee');
   return (itemIconCache[key] = cv.toDataURL());
 }
+
+// Assombrit (f < 1) ou éclaircit (f > 1) une couleur hexadécimale
+function shadeHex(hex, f) {
+  const [r, g, b] = hexRgb(hex);
+  const m = (x) => Math.max(0, Math.min(255, Math.round(f < 1 ? x * f : x + (255 - x) * (f - 1))));
+  return `#${[m(r), m(g), m(b)].map((x) => x.toString(16).padStart(2, '0')).join('')}`;
+}
+
+// Silhouette d'un sprite (même forme, couleur unie), mise en cache : sert à assombrir la nuit
+const shadeCache = new WeakMap();
+function shadeOf(cv, col = '#070b24') {
+  let s = shadeCache.get(cv);
+  if (s) return s;
+  s = makeCanvas(cv.width, cv.height);
+  const c = s.getContext('2d');
+  c.drawImage(cv, 0, 0);
+  c.globalCompositeOperation = 'source-in';
+  c.fillStyle = col;
+  c.fillRect(0, 0, cv.width, cv.height);
+  shadeCache.set(cv, s);
+  return s;
+}
+
+// ===========================================================================
+// Équipement : icônes 16×16 selon l'emplacement
+// ===========================================================================
+const equipIconCache = {};
+function equipIcon(it) {
+  const key = it.id;
+  if (equipIconCache[key]) return equipIconCache[key];
+  const cv = makeCanvas(16, 16);
+  const c = cv.getContext('2d');
+  const col = it.color, dark = shadeHex(it.color, 0.65), light = shadeHex(it.color, 1.35), acc = it.accent;
+  switch (it.slot) {
+    case 'hook':
+      pxRect(c, 8, 1, 3, 3, acc);                 // œillet
+      c.clearRect(9, 2, 1, 1);
+      pxRect(c, 9, 4, 2, 8, col);                 // hampe
+      pxRect(c, 9, 4, 1, 8, light);
+      pxRect(c, 8, 12, 2, 2, col);                // courbure
+      pxRect(c, 5, 13, 4, 2, col);
+      pxRect(c, 3, 10, 2, 4, col);
+      pxRect(c, 3, 9, 1, 1, light);               // pointe
+      pxRect(c, 5, 10, 1, 2, dark);               // ardillon
+      if (it.id === 'h_triple') { pxRect(c, 11, 12, 2, 2, col); pxRect(c, 12, 10, 2, 3, col); }
+      if (it.tier >= 4) for (const [x, y] of [[13, 3], [2, 5], [13, 14]]) pxRect(c, x, y, 1, 1, acc);
+      break;
+    case 'gloves':
+      for (let k = 0; k < 4; k++) pxRect(c, 5 + k * 2, 2 + (k === 0 || k === 3 ? 1 : 0), 2, 6, k % 2 ? col : light);
+      pxRect(c, 5, 6, 8, 6, col);                 // paume
+      pxRect(c, 2, 6, 3, 4, col);                 // pouce
+      pxRect(c, 3, 9, 2, 2, col);
+      pxRect(c, 5, 6, 1, 6, light);
+      pxRect(c, 12, 6, 1, 6, dark);
+      pxRect(c, 5, 12, 8, 3, acc);                // poignet
+      pxRect(c, 5, 12, 8, 1, shadeHex(acc, 1.3));
+      break;
+    case 'boots':
+      pxRect(c, 4, 1, 6, 10, col);                // tige
+      pxRect(c, 4, 1, 1, 10, light);
+      pxRect(c, 4, 1, 6, 2, acc);                 // revers
+      pxRect(c, 4, 10, 10, 3, col);               // pied
+      pxRect(c, 12, 10, 2, 1, light);
+      pxRect(c, 4, 13, 10, 2, dark);              // semelle
+      break;
+    case 'pants':
+      pxRect(c, 3, 2, 10, 3, acc);                // ceinture
+      pxRect(c, 7, 2, 2, 3, shadeHex(acc, 1.3));  // boucle
+      pxRect(c, 3, 5, 10, 3, col);
+      pxRect(c, 3, 8, 4, 7, col);                 // jambes
+      pxRect(c, 9, 8, 4, 7, col);
+      pxRect(c, 3, 5, 1, 10, light);
+      pxRect(c, 12, 5, 1, 10, dark);
+      pxRect(c, 7, 6, 2, 2, dark);
+      break;
+    case 'jacket':
+      pxRect(c, 4, 3, 8, 12, col);                // corps
+      pxRect(c, 1, 4, 3, 9, col);                 // manches
+      pxRect(c, 12, 4, 3, 9, col);
+      pxRect(c, 1, 4, 1, 9, light);
+      pxRect(c, 14, 4, 1, 9, dark);
+      pxRect(c, 1, 12, 3, 1, acc);
+      pxRect(c, 12, 12, 3, 1, acc);
+      pxRect(c, 6, 2, 4, 2, acc);                 // col
+      pxRect(c, 7, 4, 2, 2, acc);
+      pxRect(c, 8, 6, 1, 9, dark);                // fermeture
+      for (const y of [7, 10, 13]) pxRect(c, 9, y, 1, 1, shadeHex(acc, 1.2));
+      break;
+  }
+  pixelize(cv, '#140e0a');
+  return (equipIconCache[key] = cv.toDataURL());
+}
+
+// ===========================================================================
+// Météo : icônes 16×16
+// ===========================================================================
+const weatherIconCache = {};
+function weatherIcon(id) {
+  if (weatherIconCache[id]) return weatherIconCache[id];
+  const cv = makeCanvas(16, 16);
+  const c = cv.getContext('2d');
+  const cloud = (x, y, col, shade) => {
+    pxDisk(c, x + 3, y + 3, 3, col);
+    pxDisk(c, x + 7, y + 2, 3, col);
+    pxDisk(c, x + 10, y + 4, 2, col);
+    pxRect(c, x + 1, y + 4, 11, 3, col);
+    pxRect(c, x + 1, y + 6, 11, 1, shade);
+  };
+  const sun = (x, y, r, rays) => {
+    if (rays) {
+      for (let k = 0; k < 8; k++) {
+        const a = (k * Math.PI) / 4;
+        pxRect(c, x + Math.round(Math.cos(a) * (r + 2)), y + Math.round(Math.sin(a) * (r + 2)), 1, 1, '#ffd84a');
+      }
+    }
+    pxDisk(c, x, y, r, '#ffd84a');
+    pxDisk(c, x - 1, y - 1, Math.max(1, r - 2), '#fff3b8');
+  };
+  switch (id) {
+    case 'clair': sun(6, 6, 3, true); cloud(3, 8, '#ffffff', '#c8d8e8'); break;
+    case 'soleil': sun(8, 8, 4, true); break;
+    case 'nuageux': cloud(3, 2, '#a8b4c0', '#7a8694'); cloud(1, 7, '#e8eef4', '#b8c4d0'); break;
+    case 'pluie':
+      cloud(2, 1, '#9aa6b4', '#6a7684');
+      for (const [x, y] of [[4, 10], [8, 11], [12, 10], [6, 13], [10, 13]]) pxRect(c, x, y, 1, 2, '#6ab8ff');
+      break;
+    case 'orage':
+      cloud(2, 1, '#5a6270', '#3a404a');
+      pxRect(c, 8, 8, 2, 2, '#ffe04a'); pxRect(c, 6, 10, 3, 2, '#ffe04a'); pxRect(c, 7, 12, 2, 3, '#ffe04a');
+      break;
+    case 'brouillard':
+      for (const [y, x, w] of [[3, 2, 11], [6, 4, 10], [9, 1, 12], [12, 3, 10]]) pxRect(c, x, y, w, 2, '#d8e0e6');
+      break;
+    case 'vent':
+      for (const [y, w] of [[4, 10], [8, 12], [12, 8]]) { pxRect(c, 1, y, w, 1, '#e8f4ff'); pxRect(c, w, y - 2, 1, 2, '#e8f4ff'); }
+      break;
+    case 'arcenciel':
+      ['#e04a3a', '#f0a030', '#f5e04a', '#5ad04a', '#3a8ce0', '#9a48c8'].forEach((col, i) => {
+        for (let a = 0; a <= 24; a++) {
+          const t = Math.PI + (a / 24) * Math.PI;
+          pxRect(c, 8 + Math.round(Math.cos(t) * (7 - i)), 13 + Math.round(Math.sin(t) * (7 - i)), 1, 1, col);
+        }
+      });
+      break;
+    case 'nuit':
+      pxDisk(c, 8, 8, 6, '#f0ecd0');
+      c.globalCompositeOperation = 'destination-out';
+      pxDisk(c, 11, 6, 5, '#000');
+      c.globalCompositeOperation = 'source-over';
+      pxRect(c, 13, 12, 1, 1, '#ffffff');
+      pxRect(c, 12, 2, 1, 1, '#ffffff');
+      break;
+  }
+  pixelize(cv, '#1e140c');
+  return (weatherIconCache[id] = cv.toDataURL());
+}
+
+// ===========================================================================
+// Caisses flottantes : un sprite par type de caisse (22×16 + contour)
+// ===========================================================================
+function buildCrateSprite(p) {
+  const cv = makeCanvas(24, 18);
+  const c = cv.getContext('2d');
+  const W = 22, H = 16, ox = 1, oy = 1;
+  const col = p.color, dark = shadeHex(col, 0.62), light = shadeHex(col, 1.3);
+  if (p.id === 'osier') {
+    pxRect(c, ox, oy, W, H, col);
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        if ((x + y * 2) % 4 === 0) pxRect(c, ox + x, oy + y, 1, 1, dark);
+        else if ((x + y) % 5 === 0) pxRect(c, ox + x, oy + y, 1, 1, light);
+      }
+    }
+    pxRect(c, ox, oy, W, 2, light);
+    pxRect(c, ox, oy + H - 2, W, 2, dark);
+  } else {
+    pxRect(c, ox, oy, W, H, col);
+    for (const y of [5, 10]) pxRect(c, ox, oy + y, W, 1, dark);         // jointures des planches
+    for (const y of [0, 6, 11]) pxRect(c, ox + 2, oy + y, W - 4, 1, light);
+    pxRect(c, ox, oy, 2, H, dark);                                        // montants
+    pxRect(c, ox + W - 2, oy, 2, H, dark);
+    pxLine(c, ox + 3, oy + H - 2, ox + W - 4, oy + 1, dark);             // traverse
+    for (const [x, y] of [[ox, oy], [ox + W - 2, oy], [ox, oy + H - 2], [ox + W - 2, oy + H - 2]]) pxRect(c, x, y, 2, 2, shadeHex(col, 0.45));
+    if (p.id === 'cerclee' || p.id === 'profonde') {
+      for (const x of [6, 15]) { pxRect(c, ox + x, oy, 2, H, '#9aa3ad'); pxRect(c, ox + x, oy, 1, H, '#c8d0d8'); }
+    }
+    if (p.id === 'profonde') for (const [x, y] of [[3, 3], [18, 3], [3, 12], [18, 12]]) pxRect(c, ox + x, oy + y, 1, 1, '#d8e0e8');
+    if (p.id === 'maudite') {
+      for (const [x, y] of [[5, 3], [6, 2], [7, 3], [12, 8], [13, 7], [14, 8], [13, 9], [8, 12], [9, 13]]) pxRect(c, ox + x, oy + y, 1, 1, '#e3b0ff');
+      pxRect(c, ox + 16, oy + 3, 1, 3, '#e3b0ff');
+    }
+  }
+  pixelize(cv, '#1e140c');
+  return cv;
+}

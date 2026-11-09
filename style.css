@@ -499,3 +499,73 @@ button { font-family: inherit; color: #fff; text-shadow: var(--outline); cursor:
 .save-hint { margin: 0 0 0.6em; font-size: 0.85em; opacity: 0.85; }
 .save-confirm { margin-top: 0.6em; padding: 0.5em 0.7em; background: rgba(20, 28, 80, 0.6); border-radius: 0.3em; }
 .save-confirm p { margin: 0 0 0.5em; font-size: 0.9em; }
+
+/* ---------- HUD : jour, heure et météo ---------- */
+.hud-left { display: flex; flex-direction: column; gap: 0.45em; align-items: flex-start; }
+.hud-world { padding: 0.4em 0.8em 0.45em; font-size: 0.95em; max-width: 17em; }
+.hw-top { display: flex; align-items: center; gap: 0.5em; }
+.hw-top img { width: 2.2em; height: 2.2em; flex: none; }
+#hw-day { font-size: 1.1em; }
+#hw-weather { color: #ffe56a; font-size: 0.95em; }
+.hw-fx { margin-top: 0.25em; color: #8ff0a0; font-size: 0.8em; line-height: 1.25; }
+
+.toast-sub { display: block; color: #8ff0a0; font-size: 0.78em; max-width: 18em; }
+
+/* ---------- Carte de prise : objet trouvé ---------- */
+.cc-item { color: #fff; }
+.cc-item img { width: 1.6em; height: 1.6em; }
+.cc-item small { color: #ffe56a; }
+
+/* ---------- Profil : onglets & inventaire ---------- */
+.sheet-tabs { display: flex; gap: 0.4em; margin-left: 1em; }
+.sheet-tabs .btn { font-size: 1em; }
+
+.outfit { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.3em; margin-top: 0.3em; }
+.outfit-cell { display: flex; flex-direction: column; align-items: center; gap: 0.15em; text-align: center; font-size: 0.72em; line-height: 1.1; }
+.outfit-cell img { width: 2.6em; height: 2.6em; padding: 0.2em; background: rgba(20, 28, 80, 0.6); border-radius: 0.25em; }
+img.ghost { opacity: 0.45; }
+
+.inv { flex: 1; min-height: 0; display: flex; gap: 1.2em; }
+.inv-side { width: 21em; flex: none; overflow-y: auto; padding-right: 0.3em; }
+.inv-side h3 { margin: 0.3em 0; font-weight: 600; font-size: 1.3em; color: #ffe56a; }
+.inv-bag { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.5em; }
+
+.inv-slot { margin: 0.35em 0; padding: 0.4em 0.6em; box-shadow: inset 0 0 0 0.12em var(--rc, #6f80dc); }
+.inv-slot.empty { background: rgba(30, 40, 100, 0.6); box-shadow: inset 0 0 0 0.1em #3a4478; }
+.inv-slot .slot-top img { padding: 0.15em; background: rgba(20, 28, 80, 0.6); border-radius: 0.25em; }
+.inv-slot-txt { flex: 1; min-width: 0; }
+.inv-slot .btn { font-size: 0.8em; padding: 0.2em 0.6em; }
+
+.inv-bonus { padding: 0.5em 0.7em; background: rgba(20, 28, 80, 0.55); border-radius: 0.3em; line-height: 1.35; }
+.inv-sources { display: flex; flex-wrap: wrap; gap: 0.3em 0.7em; margin-top: 0.5em; font-size: 0.82em; opacity: 0.9; }
+.inv-sources .src { display: inline-flex; align-items: center; gap: 0.3em; }
+.inv-sources img { width: 1.4em; height: 1.4em; }
+
+.inv-head { display: flex; align-items: center; gap: 0.8em; }
+.inv-head .chips { margin: 0; flex: 1; }
+.inv-cap { white-space: nowrap; opacity: 0.85; }
+
+.inv-grid {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(26em, 100%), 1fr));
+  gap: 0.5em;
+  align-content: start;
+  padding-right: 0.3em;
+}
+.inv-item { box-shadow: inset 0 0 0 0.12em var(--rc, #6f80dc); }
+.inv-item.equipped { background: rgba(92, 112, 218, 0.85); box-shadow: inset 0 0 0 0.16em #ffd84a; }
+.inv-item .item-icon { box-shadow: inset 0 0 0 0.1em var(--rc); }
+.inv-desc { font-style: italic; opacity: 0.65 !important; }
+.inv-eq { color: #ffd84a; }
+.inv-empty { text-align: center; font-size: 1.2em; margin: 3em 1em; opacity: 0.85; grid-column: 1 / -1; }
+.inv-empty small { display: block; margin-top: 0.6em; font-size: 0.75em; }
+.inv-foot { display: flex; justify-content: flex-end; }
+.inv-foot .btn { font-size: 0.9em; }
+.inv-foot .btn img { width: 0.9em; height: 0.9em; vertical-align: -0.1em; }
+
+/* ---------- Caisse relevée : objets trouvés ---------- */
+.pot-items { display: flex; flex-wrap: wrap; gap: 0.4em; justify-content: center; margin-bottom: 0.5em; }
+.pot-items .cc-loot { margin: 0; }
