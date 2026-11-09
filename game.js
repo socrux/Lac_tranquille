@@ -14,7 +14,7 @@ const BOAT_Y = 222;          // haut de la coque
 const $ = (id) => document.getElementById(id);
 
 // Version du jeu : à mettre à jour à chaque pull request (MAJEUR.MINEUR.CORRECTIF)
-const GAME_VERSION = '1.1.1';
+const GAME_VERSION = '1.2.0';
 
 // ===========================================================================
 // Données
@@ -322,10 +322,12 @@ function emptyProgress() {
     itemSeq: 0,
     clock: CLOCK_START,     // secondes de jeu depuis le début de la partie (1 jour = DAY_LEN)
     weather: null,          // { id, until } (until : en secondes de jeu)
+    // malédictions (après la première abomination) : offres du jour, malédiction acceptée, choix fait
+    curse: { day: 0, offers: [], active: null, decided: false },
     stats: {
       casts: 0, caught: 0, missed: 0, early: 0, aboms: 0, perfects: 0, chests: 0,
       crusts: 0, potsCollected: 0, cthulhu: 0, earned: 0, spent: 0, playTime: 0, best: null,
-      itemsFound: 0, itemsSold: 0, itemsEarned: 0,
+      itemsFound: 0, itemsSold: 0, itemsEarned: 0, curses: 0,
     },
   };
 }
@@ -413,11 +415,17 @@ function validProgress(s) {
       && it.uid < Number.MAX_SAFE_INTEGER / 2 && !seen.has(it.uid) && seen.add(it.uid))
     .map((it) => ({ uid: it.uid, id: it.id }));
   p.itemSeq = p.items.reduce((m, it) => Math.max(m, it.uid), vInt(s.itemSeq, Number.MAX_SAFE_INTEGER / 2));
-  // équipement : doit pointer vers un objet de l'inventaire, dans le bon emplacement
+  // équipement : doit pointer vers un objet de l'inventaire, du bon type, porté une seule fois ;
+  // un même accessoire ne peut pas occuper deux emplacements
   const equip = vObj(s.equip);
+  const usedUids = new Set();
+  const usedAcc = new Set();
   for (const sl of SLOTS) {
     const it = p.items.find((x) => x.uid === equip[sl.id]);
-    if (it && ITEM_BY_ID[it.id].slot === sl.id) p.equip[sl.id] = it.uid;
+    if (!it || ITEM_BY_ID[it.id].slot !== sl.kind || usedUids.has(it.uid)) continue;
+    if (sl.kind === 'acc') { if (usedAcc.has(it.id)) continue; usedAcc.add(it.id); }
+    usedUids.add(it.uid);
+    p.equip[sl.id] = it.uid;
   }
   const boat = vObj(s.boat);
   const allParts = BOATS.flatMap((b) => [...(b.parts || []), ...(b.special ? [b.special] : [])].map((x) => x.id));
@@ -429,6 +437,13 @@ function validProgress(s) {
   p.clock = typeof s.clock === 'number' && Number.isFinite(s.clock) ? vNum(s.clock, SAVE_LIM.time) : CLOCK_START;
   const w = vObj(s.weather);
   p.weather = hasOwn(WEATHER_BY_ID, w.id) ? { id: w.id, until: vNum(w.until, SAVE_LIM.time) } : null;
+  const cu = vObj(s.curse);
+  p.curse = {
+    day: vInt(cu.day, SAVE_LIM.count),
+    offers: [...new Set(vArr(cu.offers).filter((id) => hasOwn(CURSE_BY_ID, id)))].slice(0, CURSE_OFFERS),
+    active: hasOwn(CURSE_BY_ID, cu.active) ? cu.active : null,
+    decided: cu.decided === true,
+  };
   // statistiques : uniquement les compteurs connus, nombres finis et bornés
   const st = vObj(s.stats);
   for (const k of Object.keys(p.stats)) {
@@ -515,7 +530,17 @@ const equippedItem = (slot) => {
   const inst = progress.equip[slot] != null ? itemByUid(progress.equip[slot]) : null;
   return inst ? itemDef(inst) : null;
 };
-const isEquipped = (inst) => progress.equip[itemDef(inst).slot] === inst.uid;
+// emplacement où l'objet est porté (null : pas équipé)
+const slotOfInst = (inst) => SLOTS.find((sl) => progress.equip[sl.id] === inst.uid)?.id ?? null;
+const isEquipped = (inst) => slotOfInst(inst) !== null;
+// emplacement visé quand on équipe un objet : celui de son type ; pour un accessoire, l'emplacement
+// où le même accessoire est déjà porté, sinon le premier libre (null : tous occupés, il faut choisir)
+function slotForItem(it) {
+  if (it.slot !== 'acc') return it.slot;
+  const same = ACC_SLOTS.find((sl) => equippedItem(sl.id)?.id === it.id);
+  if (same) return same.id;
+  return ACC_SLOTS.find((sl) => !equippedItem(sl.id))?.id ?? null;
+}
 
 // Toutes les sources d'effets actives : objets équipés, météo, nuit
 function activeSources() {
@@ -528,6 +553,8 @@ function activeSources() {
     const w = weather();
     if (Object.keys(w.fx).length) out.push({ kind: 'weather', name: w.name, fx: w.fx, icon: weatherIcon(w.id) });
     if (isNight()) out.push({ kind: 'night', name: NIGHT.name, fx: NIGHT.fx, icon: weatherIcon('nuit') });
+    const cu = activeCurse();
+    if (cu) out.push({ kind: 'curse', name: cu.name, fx: curseFx(cu), icon: curseIcon(cu) });
   }
   return out;
 }
@@ -544,8 +571,18 @@ let modsCache = null;
 function mods() {
   if (!modsCache) {
     modsCache = sumFx(activeSources());
-    modsCache.speed = Math.min(modsCache.speed, 0.6);
-    modsCache.vigor = Math.min(modsCache.vigor, 0.6);
+    const M = modsCache;
+    M.speed = clamp(M.speed, -1, 0.6);
+    M.vigor = clamp(M.vigor, -1, 0.6);
+    // planchers : les malus des malédictions ne doivent jamais rendre une formule négative
+    M.gold = Math.max(M.gold, -0.75);
+    M.rare = Math.max(M.rare, -0.15);
+    M.luck = Math.max(M.luck, -0.9);
+    M.chest = Math.max(M.chest, -0.9);
+    M.crate = Math.max(M.crate, -0.75);
+    M.perfect = Math.max(M.perfect, -1);
+    M.bar = Math.max(M.bar, -0.6);
+    M.window = Math.max(M.window, -0.5);
   }
   return modsCache;
 }
@@ -656,7 +693,7 @@ function startWaiting() {
 
 function reactionWindow() {
   const { f, abom } = game.fish;
-  return f.window * (abom ? 0.85 : 1) + rod().window + mods().window;
+  return Math.max(0.3, f.window * (abom ? 0.85 : 1) + rod().window + mods().window);
 }
 
 function rollCatch(f, abom) {
@@ -687,6 +724,7 @@ function registerCatch(f, abom, c) {
   if (abom) st.aboms++;
   st.earned += c.money;
   progress.money += c.money;
+  if (abom && st.aboms === 1) unlockCurses();
   return flags;
 }
 
@@ -775,10 +813,18 @@ function addItem(it) {
   return { inst, sold: 0 };
 }
 
-function equipItem(uid) {
+function equipItem(uid, slotId = null) {
   const inst = itemByUid(uid);
   if (!inst) return;
-  progress.equip[itemDef(inst).slot] = uid;
+  const it = itemDef(inst);
+  const target = slotId || slotForItem(it);
+  if (!target || SLOT_BY_ID[target]?.kind !== it.slot) return;
+  // un même accessoire ne peut pas être porté deux fois : on libère l'autre emplacement
+  for (const sl of SLOTS) {
+    const cur = progress.equip[sl.id];
+    if (sl.id !== target && cur != null && (cur === uid || (it.slot === 'acc' && itemByUid(cur)?.id === it.id))) delete progress.equip[sl.id];
+  }
+  progress.equip[target] = uid;
   onEquipChange();
 }
 function unequipSlot(slot) {
@@ -1239,6 +1285,7 @@ function setWeather(id, announce = true) {
 function updateClock(dt) {
   const prev = progress.clock;
   progress.clock += dt;
+  if (dayOf(prev) !== dayOf(progress.clock)) refreshCurseDay(true);
   const wasNight = isNightHour(hourOf(prev));
   const night = isNightHour(hourOf(progress.clock));
   if (night !== wasNight) {
@@ -1351,6 +1398,7 @@ function update(dt) {
   invalidateMods();
   if (inGame) updateClock(dt);
   updateWorldVisuals(dt);
+  updateCurseVis(dt);
   updateWorldHud();
 
   // caisses (en temps réel) et ouverture progressive des yeux au fond du lac
@@ -2430,6 +2478,7 @@ function render() {
   }
   renderScene();
   ctx.restore();
+  drawCursePost();
   drawReelGauge();
 }
 
@@ -2496,9 +2545,246 @@ function renderScene() {
     ctx.fillStyle = `rgba(40, 10, 60, ${c * 0.12})`;
     ctx.fillRect(0, 0, LW, LH);
   }
+  drawCurseFx();
   if (inGame && (game.fish?.abom || game.fish?.f.unique) && ['bite', 'reeling', 'caught', 'rising', 'phaseBreak'].includes(game.state)) {
     ctx.fillStyle = game.fish.f.unique ? `rgba(10, 40, 25, ${(cth.active ? 0.16 : 0.35) + Math.sin(time * 2) * 0.08})` : `rgba(35, 8, 50, ${0.25 + Math.sin(time * 3) * 0.07})`;
     ctx.fillRect(0, 0, LW, LH);
+  }
+}
+
+// ===========================================================================
+// Malédictions : effets visuels (sans état : tout est calculé à partir du temps)
+// ===========================================================================
+const curseVis = { id: null, a: 0 };          // effet affiché et son intensité (fondu 0 → 1)
+function updateCurseVis(dt) {
+  const want = activeCurse()?.id || null;
+  if (want && curseVis.id !== want && curseVis.a <= 0.02) curseVis.id = want;   // on change d'effet une fois l'ancien éteint
+  const target = want && curseVis.id === want ? 1 : 0;
+  curseVis.a = clamp(curseVis.a + Math.sign(target - curseVis.a) * dt * 0.5, 0, 1);
+  if (!want && curseVis.a === 0) curseVis.id = null;
+}
+// pseudo-aléatoire fixe (même valeur à chaque image pour un même i)
+const hr = (i, k = 0) => { const x = Math.sin(i * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };
+const tint = (col, alpha) => { ctx.fillStyle = col; ctx.globalAlpha = alpha; ctx.fillRect(0, 0, LW, LH); ctx.globalAlpha = 1; };
+const vignette = (r, g, b, alpha, inner = 90, cx = LW / 2, cy = LH / 2) => {
+  const grad = ctx.createRadialGradient(cx, cy, inner, cx, cy, LW * 0.62);
+  grad.addColorStop(0, `rgba(${r},${g},${b},0)`);
+  grad.addColorStop(1, `rgba(${r},${g},${b},${alpha})`);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, LW, LH);
+};
+const RUNES = [[7, 5, 2, 5, 7], [5, 7, 5, 2, 2], [2, 5, 7, 5, 5], [6, 1, 6, 4, 3], [7, 1, 3, 1, 7], [5, 5, 2, 5, 5]];   // glyphes 3×5 (bits)
+
+function drawCurseFx() {
+  if (!inGame || !curseVis.id || curseVis.a <= 0) return;
+  const a = curseVis.a;
+  const T = time;
+  ctx.save();
+  switch (CURSE_BY_ID[curseVis.id].vis) {
+    case 'blood': {                             // ciel rouge, lune de sang, gouttes qui coulent du haut
+      tint('#6a0010', 0.18 * a);
+      ctx.globalAlpha = a;
+      pxDisk(ctx, 410, 34, 16, '#5a0a10');
+      pxDisk(ctx, 410, 34, 14, '#c0202a');
+      pxDisk(ctx, 405, 30, 4, '#d8404a');
+      pxDisk(ctx, 416, 40, 2, '#901018');
+      for (let i = 0; i < 14; i++) {
+        const x = Math.round(hr(i) * LW);
+        const len = Math.round(((T * (6 + hr(i, 1) * 10) + hr(i, 2) * 40) % 46));
+        ctx.fillStyle = '#8a0a14';
+        ctx.fillRect(x, 0, 1, len);
+        ctx.fillRect(x - 1, len, 3, 2);
+      }
+      break;
+    }
+    case 'miasma': {                            // nappes de brume verte qui dérivent, bords verdâtres
+      tint('#2a5a20', 0.1 * a);
+      for (let k = 0; k < 8; k++) {
+        const dir = k % 2 ? 1 : -1;
+        const x = ((hr(k) * (LW + 260) + T * 9 * dir) % (LW + 260) + LW + 260) % (LW + 260) - 200;
+        const y = HORIZON - 40 + k * 24 + Math.sin(T * 0.4 + k) * 4;
+        ctx.globalAlpha = 0.22 * a;
+        pxEllipse(ctx, Math.round(x + 100), Math.round(y), 120, 10, '#8ae07a');
+      }
+      ctx.globalAlpha = a;
+      vignette(30, 100, 30, 0.55);
+      break;
+    }
+    case 'eyes': {                              // des yeux s'ouvrent dans le ciel et sur les bords, et fixent la barque
+      tint('#3a2a00', 0.1 * a);
+      for (let i = 0; i < 18; i++) {
+        const edge = i % 3 === 0;
+        const x = Math.round(edge ? (i % 2 ? 16 + hr(i) * 26 : LW - 42 + hr(i) * 26) : 30 + hr(i) * (LW - 60));
+        const y = Math.round(edge ? 120 + hr(i, 1) * 120 : 12 + hr(i, 1) * (HORIZON - 28));
+        const open = clamp(Math.sin(T * 0.6 + i * 1.9) * 2.2, 0, 1);
+        if (open <= 0) continue;
+        const h = Math.max(1, Math.round(5 * open));
+        ctx.globalAlpha = a;
+        pxEllipse(ctx, x, y, 10, h + 2, '#2a0a14');           // paupière
+        pxEllipse(ctx, x, y, 9, h, '#f0e6c8');                // blanc de l'œil
+        pxRect(ctx, x - 8, y, 3, 1, '#d0606a');               // veinules
+        pxRect(ctx, x + 6, y - 1, 2, 1, '#d0606a');
+        const dx = Math.round(clamp((BOAT_X - x) / 60, -3, 3));
+        const ih = Math.min(h, 3);
+        pxDisk(ctx, x + dx, y, ih, '#e0a020');                // iris
+        pxRect(ctx, x + dx, y - ih + 1, 1, ih * 2 - 1, '#100408');   // pupille fendue
+      }
+      ctx.globalAlpha = a;
+      vignette(70, 50, 0, 0.45);
+      break;
+    }
+    case 'ink': {                               // pluie d'encre noire et taches au sol
+      tint('#140a28', 0.2 * a);
+      ctx.globalAlpha = 0.75 * a;
+      ctx.fillStyle = '#08040e';
+      for (let i = 0; i < 90; i++) {
+        const sp = 170 + hr(i, 2) * 90;
+        const x = Math.round((hr(i) * LW + T * 25) % LW);
+        const y = Math.round((hr(i, 1) * (LH + 20) + T * sp) % (LH + 20)) - 10;
+        ctx.fillRect(x, y, 1, 7);
+      }
+      for (let i = 0; i < 8; i++) {
+        const life = (T * 0.5 + hr(i, 3)) % 1;
+        ctx.globalAlpha = (1 - life) * 0.6 * a;
+        pxEllipse(ctx, Math.round(hr(i, 4) * LW), Math.round(HORIZON + 20 + hr(i, 5) * 130), Math.round(2 + life * 7), Math.round(1 + life * 2), '#08040e');
+      }
+      break;
+    }
+    case 'tentacles': {                         // tentacules qui ondulent depuis le bas de l'écran et le lac
+      tint('#0a3a20', 0.16 * a);
+      ctx.globalAlpha = a;
+      [[22, 140, 9], [96, 90, 7], [176, 60, 5], [318, 64, 5], [390, 100, 7], [458, 150, 9]].forEach(([bx, ht, w], i) => {
+        const rise = ht * (0.75 + 0.25 * Math.sin(T * 0.5 + i * 2));
+        for (const [col, extra] of [['#0a1a10', 1], ['#2f7a50', 0]]) {   // contour sombre, puis chair
+          for (let k = 0; k <= 30; k++) {
+            const t = k / 30;
+            const x = Math.round(bx + Math.sin(T * 1.3 + t * 3.4 + i) * 16 * t);
+            const y = Math.round(LH + 6 - t * rise);
+            pxDisk(ctx, x, y, Math.max(1, Math.round((1 - t) * w)) + extra, col);
+          }
+        }
+        for (let k = 2; k < 26; k += 3) {                                  // ventouses
+          const t = k / 30;
+          const x = Math.round(bx + Math.sin(T * 1.3 + t * 3.4 + i) * 16 * t);
+          const r = Math.max(1, Math.round((1 - t) * w));
+          if (r > 2) pxRect(ctx, x - r + 2, Math.round(LH + 6 - t * rise), 2, 2, '#a0f0c0');
+        }
+      });
+      break;
+    }
+    case 'ash': {                               // cendres qui tombent, brume orangée
+      tint('#b04a10', 0.16 * a);
+      for (let i = 0; i < 170; i++) {
+        const x = Math.round((hr(i) * LW + Math.sin(T * 0.8 + i) * 10 + T * 6) % LW);
+        const y = Math.round((hr(i, 1) * LH + T * (12 + hr(i, 2) * 14)) % LH);
+        ctx.globalAlpha = a * (0.6 + hr(i, 3) * 0.4);
+        ctx.fillStyle = i % 6 === 0 ? '#ff9a4a' : i % 2 ? '#c8c4cc' : '#6a6870';
+        ctx.fillRect(x, y, 2, i % 3 === 0 ? 2 : 1);
+      }
+      ctx.globalAlpha = a;
+      vignette(90, 30, 0, 0.4);
+      break;
+    }
+    case 'dark': {                              // nuit noire : seule la lanterne de la barque éclaire
+      const flick = 1 + Math.sin(T * 7) * 0.03 + Math.sin(T * 13) * 0.02;
+      const grad = ctx.createRadialGradient(BOAT_X, BOAT_Y, 20 * flick, BOAT_X, BOAT_Y, 120 * flick);
+      grad.addColorStop(0, 'rgba(4,4,16,0)');
+      grad.addColorStop(1, 'rgba(4,4,16,0.88)');
+      ctx.globalAlpha = a;
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, LW, LH);
+      break;
+    }
+    case 'runes': {                             // runes violettes qui montent du lac
+      tint('#2a0a40', 0.16 * a);
+      for (let i = 0; i < 26; i++) {
+        const y = Math.round(LH - ((T * (10 + hr(i, 2) * 8) + hr(i) * LH) % (LH + 16)));
+        const x = Math.round(hr(i, 1) * (LW - 12) + Math.sin(T + i) * 5);
+        ctx.globalAlpha = a * clamp((y - 10) / 90, 0, 1);
+        const g = RUNES[i % RUNES.length];
+        for (let ry = 0; ry < 5; ry++) for (let rx = 0; rx < 3; rx++) {
+          if (g[ry] & (4 >> rx)) {
+            pxRect(ctx, x + rx * 3 - 1, y + ry * 3 - 1, 4, 4, '#4a1a7a');   // halo
+            pxRect(ctx, x + rx * 3, y + ry * 3, 2, 2, '#e0a8ff');
+          }
+        }
+      }
+      ctx.globalAlpha = a;
+      vignette(60, 10, 90, 0.4);
+      break;
+    }
+    case 'stars': {                             // ciel violet, étoiles qui scintillent, étoiles filantes
+      tint('#3a1068', 0.22 * a);
+      for (let i = 0; i < 40; i++) {
+        ctx.globalAlpha = a * (0.4 + 0.6 * Math.abs(Math.sin(T * 2 + i)));
+        const big = i % 5 === 0;
+        pxRect(ctx, Math.round(hr(i) * LW), Math.round(hr(i, 1) * (HORIZON - 10)), big ? 2 : 1, big ? 2 : 1, '#f0e0ff');
+      }
+      for (let i = 0; i < 9; i++) {
+        const p = (T * 0.3 + hr(i, 2)) % 1.3;
+        if (p > 1) continue;
+        const x0 = hr(i, 3) * LW * 0.8, y0 = hr(i, 4) * 60;
+        for (let k = 0; k < 26; k++) {
+          ctx.globalAlpha = a * (1 - k / 26);
+          pxRect(ctx, Math.round(x0 + p * 180 - k * 2), Math.round(y0 + p * 120 - k * 1.33), k < 2 ? 3 : 2, k < 2 ? 3 : 1, k < 4 ? '#ffffff' : '#c8a0ff');
+        }
+      }
+      break;
+    }
+    case 'worms': {                             // vers qui rampent sur les bords de l'écran
+      ctx.globalAlpha = a;
+      for (let i = 0; i < 22; i++) {
+        const side = i % 3;                     // 0 : bas, 1 : gauche, 2 : droite
+        const p = (T * (8 + hr(i) * 6) + hr(i, 1) * 400) % 400;
+        for (const [col, sz] of [['#3a1a14', 4], ['#d88a7a', 3]]) {       // contour, puis corps
+          for (let k = 0; k < 11; k++) {
+            const w = Math.round(Math.sin(T * 6 + k * 0.8 + i) * 2);
+            const pos = p - k * 2.5;
+            const [x, y] = side === 0 ? [Math.round((hr(i, 2) * LW + pos) % LW), LH - 6 + w]
+              : side === 1 ? [4 + w, Math.round(LH - (pos % LH))]
+              : [LW - 7 + w, Math.round(pos % LH)];
+            const d = (4 - sz) / 2;
+            pxRect(ctx, Math.round(x - d), Math.round(y - d), sz, sz, k === 0 && sz === 3 ? '#f0b0a0' : col);
+          }
+        }
+      }
+      break;
+    }
+  }
+  ctx.restore();
+}
+
+// Effets appliqués à l'image entière (après la scène) : couleurs éteintes, monde qui tangue
+let curseBuf = null;
+function drawCursePost() {
+  if (!inGame || !curseVis.id || curseVis.a <= 0) return;
+  const vis = CURSE_BY_ID[curseVis.id].vis;
+  const a = curseVis.a;
+  if (vis === 'mute') {                         // le monde perd ses couleurs
+    ctx.save();
+    ctx.globalCompositeOperation = 'saturation';
+    ctx.globalAlpha = 0.9 * a;
+    ctx.fillStyle = '#808080';
+    ctx.fillRect(0, 0, LW, LH);
+    ctx.restore();
+    ctx.save();
+    ctx.globalAlpha = a;
+    vignette(0, 0, 0, 0.4);
+    ctx.restore();
+  } else if (vis === 'wobble') {                // l'image ondule, ligne par ligne
+    if (!curseBuf) curseBuf = makeCanvas(LW, LH);
+    const b = curseBuf.getContext('2d');
+    b.clearRect(0, 0, LW, LH);
+    b.drawImage(canvas, 0, 0);
+    // les bandes décalées laissent voir l'image d'origine sur les bords (pas de bande noire)
+    for (let y = 0; y < LH; y += 2) {
+      const off = Math.round(Math.sin(y * 0.045 + time * 1.8) * 5 * a);
+      if (off) ctx.drawImage(curseBuf, 0, y, LW, 2, off, y, LW, 2);
+    }
+    ctx.save();
+    ctx.globalAlpha = a;
+    vignette(20, 70, 90, 0.5);
+    ctx.restore();
   }
 }
 
@@ -2570,6 +2856,7 @@ function updateHud() {
   $('hud-count').textContent = fmtNum(progress.stats.caught);
   const b = bait();
   $('hud-bait').textContent = b.pack === 0 ? b.name : `${b.name} (${progress.baits[b.id] || 0})`;
+  updateCurseButton();
   updateWorldHud(true);
 }
 
@@ -2580,14 +2867,16 @@ function updateWorldHud(force = false) {
   if (!inGame) return;
   const w = weather();
   const night = isNight();
-  const key = `${dayOf(progress.clock)}|${fmtHour(progress.clock)}|${w.id}|${night}`;
+  const cu = activeCurse();
+  const key = `${dayOf(progress.clock)}|${fmtHour(progress.clock)}|${w.id}|${night}|${cu?.id}`;
   if (!force && key === worldHudKey) return;
   worldHudKey = key;
   $('hw-day').textContent = `Jour ${dayOf(progress.clock)} · ${fmtHour(progress.clock)}`;
   $('hw-icon').src = weatherIcon(night && w.id === 'clair' ? 'nuit' : w.id);
   $('hw-weather').textContent = weatherLabel() + (night && w.id !== 'clair' ? ' · nuit' : '');
-  const lines = [...fxLines(w.fx), ...(night ? fxLines(NIGHT.fx) : [])];
-  $('hw-fx').innerHTML = lines.map((l) => `<div>${l}</div>`).join('');
+  const lines = [...fxLines(w.fx), ...(night ? fxLines(NIGHT.fx) : [])].map((l) => `<div>${l}</div>`);
+  if (cu) lines.push(`<div class="hw-curse" style="color:${cu.color}"><img src="${curseIcon(cu)}" alt="">${cu.name}</div>`);
+  $('hw-fx').innerHTML = lines.join('');
   $('hw-fx').hidden = !lines.length;
 }
 
@@ -2627,6 +2916,9 @@ function enterGame() {
   invalidateMods();
   refreshBoat();
   if (!progress.weather) setWeather('clair', false);
+  refreshCurseDay(false);
+  curseVis.id = activeCurse()?.id || null;
+  curseVis.a = curseVis.id ? 1 : 0;
   // pas de transition visuelle en arrivant : le ciel est directement à la bonne heure et à la bonne météo
   Object.assign(wv, { ...Object.fromEntries(VIS_KEYS.map((k) => [k, weather().vis[k] || 0])), dark: darknessAt(hourOf(progress.clock)) });
   drops.length = 0;
@@ -2927,14 +3219,119 @@ $('btn-menu').addEventListener('click', (e) => {
 });
 
 // ===========================================================================
+// Malédictions : Morgane des Brumes propose chaque jour 3 malédictions (bonus + malus).
+// Une seule peut être acceptée par jour ; elle dure jusqu'au jour suivant.
+// ===========================================================================
+const cursesUnlocked = () => (progress.stats.aboms || 0) >= 1 || admin.on;
+const activeCurse = () => {
+  const cu = progress.curse;
+  return inGame && cu?.active && cu.day === dayOf(progress.clock) ? CURSE_BY_ID[cu.active] : null;
+};
+const curseNotify = () => cursesUnlocked() && !progress.curse.decided;
+
+// Nouveau jour : la malédiction de la veille se dissipe, 3 nouvelles offres (jamais celle de la veille)
+function refreshCurseDay(announce) {
+  if (!cursesUnlocked()) return;
+  const d = dayOf(progress.clock);
+  const cu = progress.curse;
+  if (cu.day === d && cu.offers.length === CURSE_OFFERS) return;
+  const ended = cu.active ? CURSE_BY_ID[cu.active] : null;
+  const pool = CURSES.filter((c) => c.id !== cu.active);
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  progress.curse = { day: d, offers: pool.slice(0, CURSE_OFFERS).map((c) => c.id), active: null, decided: false };
+  invalidateMods();
+  updateCurseButton();
+  if (openPanelName === 'curses') renderCurses();
+  if (announce) {
+    pushToast({ icon: ICONS.witch, label: WITCH.name,
+      title: ended ? `${ended.name} se dissipe` : 'De nouvelles malédictions',
+      sub: 'Trois nouvelles malédictions vous attendent (touche M).', sound: () => Sound.chestAppear() });
+  }
+}
+
+function unlockCurses() {
+  refreshCurseDay(false);
+  pushToast({ icon: ICONS.witch, label: 'Une silhouette sur la rive', title: WITCH.name,
+    sub: 'Une sorcière vous fait signe. Elle propose des malédictions (touche M).', sound: () => Sound.curse() });
+}
+
+function acceptCurse(id) {
+  const cu = progress.curse;
+  if (cu.decided || !cu.offers.includes(id)) return;
+  cu.active = id;
+  cu.decided = true;
+  progress.stats.curses = (progress.stats.curses || 0) + 1;
+  invalidateMods();
+  Sound.curse();
+  writeSave();
+  updateHud();
+  checkAchievements();
+}
+function refuseCurses() {
+  const cu = progress.curse;
+  if (cu.decided) return;
+  cu.decided = true;
+  Sound.click();
+  writeSave();
+  updateHud();
+}
+
+let witchLine = '';
+const fxSpans = (fx, cls, mark) => fxLines(fx).map((l) => `<span class="${cls}">${mark} ${l}</span>`).join('');
+
+function renderCurses() {
+  const cu = progress.curse;
+  const active = activeCurse();
+  $('witch-name').textContent = WITCH.name;
+  $('witch-line').textContent = active ? `Le pacte est scellé : « ${active.name} ». Il te tiendra jusqu'à l'aube du jour ${cu.day + 1}…`
+    : cu.decided ? "Comme tu voudras. Le lac, lui, n'oublie rien. Reviens demain."
+    : witchLine;
+  $('curse-list').innerHTML = cu.offers.map((id) => {
+    const c = CURSE_BY_ID[id];
+    const chosen = cu.active === id;
+    return `
+      <div class="curse-card ${chosen ? 'chosen' : ''} ${cu.decided && !chosen ? 'dim' : ''}" style="--cc:${c.color}">
+        <div class="curse-head"><img src="${curseIcon(c)}" alt=""><b>${c.name}</b></div>
+        <p class="curse-desc">${c.desc}</p>
+        <div class="curse-fx">${fxSpans(c.buff, 'up', '▲')}${fxSpans(c.debuff, 'down', '▼')}</div>
+        ${chosen ? '<div class="curse-tag">Active</div>'
+          : `<button class="btn" data-curse="${c.id}" ${cu.decided ? 'disabled' : ''}>Accepter</button>`}
+      </div>`;
+  }).join('');
+  const left = Math.max(0, cu.day * DAY_LEN - progress.clock);
+  $('curse-status').textContent = active ? `Fin de la malédiction dans ${fmtTime(left)} (au jour ${cu.day + 1}).`
+    : cu.decided ? `Nouvelles malédictions dans ${fmtTime(left)}.`
+    : 'Une seule malédiction par jour. Elle dure jusqu\'au lendemain.';
+  $('curse-refuse').hidden = cu.decided;
+}
+
+$('curse-list').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-curse]');
+  if (!b || b.disabled) return;
+  acceptCurse(b.dataset.curse);
+  renderCurses();
+});
+$('curse-refuse').addEventListener('click', () => { refuseCurses(); renderCurses(); });
+
+function updateCurseButton() {
+  const btn = $('btn-curses');
+  btn.hidden = !cursesUnlocked();
+  btn.classList.toggle('notify', curseNotify());
+}
+
+// ===========================================================================
 // Panneaux
 // ===========================================================================
 let openPanelName = null;
-const PANELS = ['book', 'shop', 'sheet', 'options', 'crates', 'pot', 'achievements', 'char', 'leaderboard'];
+const PANELS = ['book', 'shop', 'sheet', 'options', 'crates', 'pot', 'achievements', 'char', 'leaderboard', 'curses'];
 const MENU_PANELS = ['options', 'char', 'leaderboard'];   // accessibles depuis le menu principal
 
 function openPanel(name) {
   if (!inGame && !MENU_PANELS.includes(name)) return;
+  if (name === 'curses' && !cursesUnlocked()) return;
   holding = false;
   $('overlay').hidden = false;
   $('message').hidden = true;
@@ -2949,6 +3346,7 @@ function openPanel(name) {
   if (name === 'achievements') renderAchievements();
   if (name === 'char') renderCharEditor();
   if (name === 'leaderboard') { renderLeaderboard(); loadLeaderboard(); }
+  if (name === 'curses') { witchLine = WITCH.greet[Math.floor(Math.random() * WITCH.greet.length)]; renderCurses(); }
   Sound.click();
 }
 
@@ -3368,7 +3766,7 @@ document.querySelectorAll('[data-stab]').forEach((b) => b.addEventListener('clic
   renderSheet();
 }));
 
-const ghostItem = (slot) => ({ id: `ghost-${slot}`, slot, tier: 0, color: '#5a6290', accent: '#454c78' });
+const ghostItem = (kind) => ({ id: `ghost-${kind}`, slot: kind, tier: 0, color: '#5a6290', accent: '#454c78' });
 
 function fxTotalLines(m) {
   return Object.entries(m).filter(([k, v]) => FX[k] && (FX[k].mul ? Math.abs(v - 1) > 1e-6 : Math.abs(v) > 1e-6)).map(([k, v]) => FX[k].label(v));
@@ -3377,7 +3775,7 @@ function fxTotalLines(m) {
 function invSort(a, b) {
   const A = itemDef(a), B = itemDef(b);
   return (isEquipped(b) - isEquipped(a)) || (B.tier - A.tier) ||
-    (SLOTS.findIndex((s) => s.id === A.slot) - SLOTS.findIndex((s) => s.id === B.slot)) || (a.uid - b.uid);
+    (ITEM_KINDS.findIndex((k) => k.id === A.slot) - ITEM_KINDS.findIndex((k) => k.id === B.slot)) || (a.uid - b.uid);
 }
 
 function renderInventory() {
@@ -3385,9 +3783,9 @@ function renderInventory() {
   // emplacements équipés
   $('inv-slots').innerHTML = SLOTS.map((sl) => {
     const it = equippedItem(sl.id);
-    return `
+    return `${sl.id === ACC_SLOTS[0].id ? '<h3 class="inv-acc-h">Accessoires</h3>' : ''}
       <div class="slot inv-slot ${it ? '' : 'empty'}" ${it ? `style="--rc:${RARITIES[it.tier].color}"` : ''}>
-        <div class="slot-top"><img class="${it ? '' : 'ghost'}" src="${equipIcon(it || ghostItem(sl.id))}" alt="">
+        <div class="slot-top"><img class="${it ? '' : 'ghost'}" src="${equipIcon(it || ghostItem(sl.kind))}" alt="">
           <div class="inv-slot-txt"><div class="slot-label">${sl.name}</div>
             <div class="slot-name" ${it ? `style="color:${rarText(it.tier)}"` : ''}>${it ? it.name : 'Aucun'}</div></div>
           ${it ? `<button class="btn" data-unequip="${sl.id}">Retirer</button>` : ''}</div>
@@ -3402,8 +3800,8 @@ function renderInventory() {
     `<div class="inv-sources">${sources.map((s) => `<span class="src"><img src="${s.icon}" alt="">${s.name}</span>`).join('')}</div>`;
 
   // filtres
-  const counts = Object.fromEntries(SLOTS.map((s) => [s.id, progress.items.filter((i) => itemDef(i).slot === s.id).length]));
-  $('inv-filter').innerHTML = [['all', 'Tout', progress.items.length], ...SLOTS.map((s) => [s.id, s.plural, counts[s.id]])]
+  const counts = Object.fromEntries(ITEM_KINDS.map((k) => [k.id, progress.items.filter((i) => itemDef(i).slot === k.id).length]));
+  $('inv-filter').innerHTML = [['all', 'Tout', progress.items.length], ...ITEM_KINDS.map((k) => [k.id, k.plural, counts[k.id]])]
     .map(([id, name, n]) => `<button class="btn ${invFilter === id ? 'active' : ''}" data-inv-filter="${id}">${name} (${n})</button>`).join('');
   $('inv-cap').textContent = `${progress.items.length} / ${ITEM_CAP}`;
 
@@ -3421,11 +3819,11 @@ function renderInventory() {
       <div class="item inv-item ${eq ? 'equipped' : ''}" style="--rc:${RARITIES[it.tier].color}">
         <div class="inv-icon-wrap"><img class="item-icon" src="${equipIcon(it)}" alt="">${insts.length > 1 ? `<span class="inv-qty">×${insts.length}</span>` : ''}</div>
         <div class="info"><b style="color:${rarText(it.tier)}">${it.name}</b>
-          <small>${SLOT_BY_ID[it.slot].name} · ${RARITIES[it.tier].name}${eq ? ' · <span class="inv-eq">Équipé</span>' : ''}</small>
+          <small>${KIND_BY_ID[it.slot].name} · ${RARITIES[it.tier].name}${eq ? ' · <span class="inv-eq">Équipé</span>' : ''}</small>
           <span class="eff">${fxLines(it.fx).join(' · ')}</span>
           <small class="inv-desc">${it.desc}</small></div>
         <div class="actions">
-          ${eq ? `<button class="btn" data-unequip="${it.slot}">Retirer</button>` : `<button class="btn" data-equip-item="${free[0].uid}">Équiper</button>`}
+          ${eq ? `<button class="btn" data-unequip="${slotOfInst(insts.find(isEquipped))}">Retirer</button>` : equipButtons(it, free[0].uid)}
           <button class="btn" data-sell-item="${free[0]?.uid ?? ''}" ${free.length ? '' : 'disabled title="Retirez-le d\'abord"'}>Vendre ${fmtNum(value)} ${coinImg()}</button>
           ${free.length > 1 ? `<button class="btn" data-sell-stack="${it.id}">Tout vendre (×${free.length}) ${fmtNum(value * free.length)} ${coinImg()}</button>` : ''}
         </div>
@@ -3443,12 +3841,18 @@ function renderInventory() {
     : `Vendre les objets communs (${commons.length}) : +${fmtNum(sum)} ${coinImg()}`;
 }
 
+// Bouton « Équiper » ; accessoire alors que les 3 emplacements sont pris : un bouton par emplacement à remplacer
+function equipButtons(it, uid) {
+  if (slotForItem(it)) return `<button class="btn" data-equip-item="${uid}">Équiper</button>`;
+  return ACC_SLOTS.map((sl) => `<button class="btn" data-equip-item="${uid}" data-slot="${sl.id}" title="Remplacer ${equippedItem(sl.id).name}">↔ ${equippedItem(sl.id).name}</button>`).join('');
+}
+
 $('sheet-inv').addEventListener('click', (e) => {
   const b = e.target.closest('button');
   if (!b || b.disabled) return;
   const d = b.dataset;
   if (d.invFilter) { invFilter = d.invFilter; Sound.click(); }
-  else if (d.equipItem) { equipItem(+d.equipItem); Sound.click(); }
+  else if (d.equipItem) { equipItem(+d.equipItem, d.slot || null); Sound.click(); }
   else if (d.unequip) { unequipSlot(d.unequip); Sound.click(); }
   else if (d.sellItem || d.sellStack) {
     const uids = d.sellStack
@@ -3476,7 +3880,8 @@ function showInvTip(btn) {
   const inst = itemByUid(+btn.dataset.equipItem);
   if (!inst) return;
   const it = itemDef(inst);
-  const cur = equippedItem(it.slot);
+  const target = btn.dataset.slot || slotForItem(it);
+  const cur = target ? equippedItem(target) : null;
   const lines = fxDiff(it.fx, cur?.fx);
   const tip = $('inv-tip');
   tip.innerHTML = `<div class="inv-diff-head">${cur ? `Comparé à : <b style="color:${rarText(cur.tier)}">${cur.name}</b>` : 'Emplacement vide'}</div>` +
@@ -3526,7 +3931,7 @@ function renderSheetMain() {
       <div class="slot-label">Tenue</div>
       <div class="outfit">${SLOTS.map((sl) => {
         const it = equippedItem(sl.id);
-        return `<div class="outfit-cell" title="${sl.name} : ${it ? it.name : 'aucun'}"><img class="${it ? '' : 'ghost'}" src="${equipIcon(it || ghostItem(sl.id))}" alt="">
+        return `<div class="outfit-cell" title="${sl.name} : ${it ? it.name : 'aucun'}"><img class="${it ? '' : 'ghost'}" src="${equipIcon(it || ghostItem(sl.kind))}" alt="">
           <span ${it ? `style="color:${rarText(it.tier)}"` : ''}>${it ? it.name : sl.name}</span></div>`;
       }).join('')}</div>
       <div class="chips"><button class="btn" data-goto-inv>Ouvrir l'inventaire (${progress.items.length})</button></div>
@@ -3776,7 +4181,11 @@ const ACHIEVEMENTS = [
   { id: 'first_item',   name: 'Trouvaille',                desc: 'Trouver votre premier objet.',                      test: (p) => (p.stats.itemsFound || 0) >= 1 },
   { id: 'epic_item',    name: 'Belle prise',               desc: 'Trouver un objet épique.',                          test: (p, ev) => ev.type === 'item' && ev.item.tier >= 3 },
   { id: 'legend_item',  name: 'Relique des profondeurs',   desc: 'Trouver un objet légendaire.',                      test: (p, ev) => ev.type === 'item' && ev.item.tier >= 4 },
-  { id: 'full_gear',    name: 'Paré pour la pêche',        desc: 'Porter un objet dans chacun des 5 emplacements.',   test: () => SLOTS.every((s) => equippedItem(s.id)) },
+  { id: 'full_gear',    name: 'Paré pour la pêche',        desc: 'Porter un vêtement dans chacun des 5 emplacements.', test: () => SLOTS.filter((s) => s.kind !== 'acc').every((s) => equippedItem(s.id)) },
+  { id: 'acc_full',     name: 'Bric-à-brac',               desc: 'Porter 3 accessoires en même temps.',               test: () => ACC_SLOTS.every((s) => equippedItem(s.id)) },
+  { id: 'necro',        name: 'Lecture interdite',         desc: 'Trouver le Necronomicon.', secret: true,           test: (p, ev) => ev.type === 'item' && ev.item.id === 'a_necro' },
+  { id: 'curse_first',  name: 'Pacte des brumes',          desc: 'Accepter une première malédiction.',               test: (p) => (p.stats.curses || 0) >= 1 },
+  { id: 'curse_10',     name: 'Habitué des pactes',        desc: 'Accepter 10 malédictions.',                         test: (p) => (p.stats.curses || 0) >= 10 },
   { id: 'sell_item',    name: 'Brocanteur',                desc: 'Vendre un objet.',                                  test: (p) => (p.stats.itemsSold || 0) >= 1 },
   { id: 'day_7',        name: 'Une semaine au lac',        desc: 'Atteindre le 7e jour.',                             test: (p) => dayOf(p.clock) >= 7 },
   { id: 'day_30',       name: 'Ermite du lac',             desc: 'Atteindre le 30e jour.',                            test: (p) => dayOf(p.clock) >= 30 },
@@ -3948,7 +4357,7 @@ function syncAdmin() {
   const ws = $('admin-weather');
   if (!ws.options.length) ws.innerHTML = WEATHERS.map((w) => `<option value="${w.id}">${w.name}</option>`).join('');
   ws.value = weather().id;
-  for (const id of ['admin-weather', 'admin-hour', 'admin-night', 'admin-day', 'admin-item']) $(id).disabled = !inGame;
+  for (const id of ['admin-weather', 'admin-hour', 'admin-night', 'admin-day', 'admin-item', 'admin-curse']) $(id).disabled = !inGame;
   const c = corruption();
   $('admin-corrupt').value = Math.round(c * 100);
   $('admin-corrupt-val').textContent = `${Math.round(c * 100)} %`;
@@ -3994,6 +4403,7 @@ function adminSkipTo(targetHour) {
   const delta = targetHour === null ? 1 : ((targetHour - h + 24) % 24) || 24;
   progress.clock += (delta / 24) * DAY_LEN;
   if (progress.weather) progress.weather.until = Math.max(progress.weather.until, progress.clock + 60);
+  refreshCurseDay(true);
   invalidateMods();
   updateWorldHud(true);
   writeSave();
@@ -4002,6 +4412,14 @@ function adminSkipTo(targetHour) {
 $('admin-hour').addEventListener('click', () => adminSkipTo(null));
 $('admin-night').addEventListener('click', () => adminSkipTo(22));
 $('admin-day').addEventListener('click', () => adminSkipTo(8));
+// relance les offres du jour (et retire la malédiction active), pour tester les effets visuels
+$('admin-curse').addEventListener('click', () => {
+  progress.curse = { day: 0, offers: [], active: null, decided: false };
+  refreshCurseDay(false);
+  writeSave();
+  updateHud();
+  $('admin-hint').textContent = `Malédictions du jour : ${progress.curse.offers.map((id) => CURSE_BY_ID[id].name).join(', ')}.`;
+});
 $('admin-item').addEventListener('click', () => {
   const d = addItem(rollItem(4, true));
   const it = itemDef(d.inst);
@@ -4102,7 +4520,7 @@ window.addEventListener('keydown', (e) => {
     else { sheetTab = 'inv'; if (openPanelName === 'sheet') renderSheet(); else openPanel('sheet'); }
     return;
   }
-  const target = { KeyC: 'book', KeyB: 'shop', KeyP: 'sheet', KeyK: 'crates', KeyT: 'achievements' }[e.code];
+  const target = { KeyC: 'book', KeyB: 'shop', KeyP: 'sheet', KeyK: 'crates', KeyT: 'achievements', KeyM: 'curses' }[e.code];
   if (target) {
     if (openPanelName === target) closePanel();
     else openPanel(target);

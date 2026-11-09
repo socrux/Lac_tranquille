@@ -52,7 +52,9 @@ l'évaluation complète de game.js (c'est le cas : chargement depuis le menu ou 
 
 - Clé : `lacTranquille.save` (paramètres audio : `lacTranquille.settings`).
 - Schéma canonique : `emptyProgress()` dans `game.js` (version `v: 2`, champs `money`, `rod`,
-  `rods`, `dex`, `potsOwned`, `achievements`, `boat`, `items`, `equip`, `clock`, `weather`, `stats`).
+  `rods`, `dex`, `potsOwned`, `achievements`, `boat`, `items`, `equip`, `clock`, `weather`, `curse`, `stats`).
+- Équipement : `SLOTS` (world.js) liste les emplacements ; `kind` = type d'objet accepté (`ITEM_KINDS`).
+  Les 3 emplacements `acc1`..`acc3` acceptent les accessoires, jamais deux fois le même.
 - **Règle** : toute donnée relue depuis localStorage est du texte non fiable → try/catch +
   nettoyage champ par champ (même logique que `validLook()`). Ne jamais fusionner une save
   brute avec `Object.assign` sur l'objet progress sans validation.

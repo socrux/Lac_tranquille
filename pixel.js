@@ -1201,6 +1201,27 @@ function renderFishCanvas(cv, f, opts = {}) {
 // Icônes de l'interface (16×16)
 // ===========================================================================
 const ICON_SPRITES = {
+  witch: {
+    rows: [
+      '.......oo.......',
+      '......ohho......',
+      '......ohhho.....',
+      '.....ohhhho.....',
+      '.....ohhhhho....',
+      '....ohhhhhhho...',
+      '...oHHHHHHHHHo..',
+      '.ooqqqqqqqqqqqoo',
+      '..owssssssswo...',
+      '..owsEsssEswo...',
+      '..owsssnssswo...',
+      '..owwsmmmswwo...',
+      '..owwwsssswwo...',
+      '...owwwwwwwo....',
+      '....owwwwwo.....',
+      '.....ooooo......',
+    ],
+    pal: { o: '#140a1a', h: '#3a2250', H: '#8a4ad8', q: '#2a1840', s: '#9ab89a', E: '#7af0a0', n: '#6a8a6a', m: '#3a2a3a', w: '#d8d8e0' },
+  },
   book: {
     rows: [
       '................',
@@ -1536,9 +1557,158 @@ function equipIcon(it) {
       pxRect(c, 8, 6, 1, 9, dark);                // fermeture
       for (const y of [7, 10, 13]) pxRect(c, 9, y, 1, 1, shadeHex(acc, 1.2));
       break;
+    case 'acc':
+      drawAccessory(c, it, col, dark, light, acc);
+      break;
   }
   pixelize(cv, '#140e0a');
   return (equipIconCache[key] = cv.toDataURL());
+}
+
+// Accessoires : un dessin par objet (champ icon). Sans icon : silhouette d'amulette (emplacement vide).
+function drawAccessory(c, it, col, dark, light, acc) {
+  switch (it.icon) {
+    case 'guide':                                   // livre bleu, titre doré, petit poisson
+      pxRect(c, 3, 2, 10, 12, col);
+      pxRect(c, 3, 2, 2, 12, dark);
+      pxRect(c, 12, 3, 1, 10, '#f3e6c8');
+      pxRect(c, 6, 4, 5, 2, acc);
+      pxRect(c, 6, 9, 4, 2, light);
+      pxRect(c, 10, 9, 1, 1, light);
+      pxRect(c, 7, 9, 1, 1, dark);
+      break;
+    case 'thermos':
+      pxRect(c, 5, 1, 6, 3, acc);                   // bouchon
+      pxRect(c, 5, 4, 6, 11, col);
+      pxRect(c, 5, 4, 1, 11, light);
+      pxRect(c, 10, 4, 1, 11, dark);
+      pxRect(c, 5, 8, 6, 2, acc);
+      pxRect(c, 11, 6, 2, 5, dark);                 // poignée
+      break;
+    case 'paw':
+      pxRect(c, 7, 1, 2, 4, acc);                   // chaînette
+      pxEllipse(c, 8, 10, 4, 4, col);
+      for (const x of [5, 8, 11]) pxDisk(c, x, 6, 1, col);
+      pxRect(c, 6, 11, 4, 3, light);
+      pxRect(c, 4, 12, 1, 2, dark);
+      break;
+    case 'net':
+      pxLine(c, 2, 14, 7, 9, acc);                  // manche
+      pxLine(c, 3, 14, 8, 9, dark);
+      pxDisk(c, 10, 6, 5, col);                     // cerceau
+      c.globalCompositeOperation = 'destination-out';
+      pxDisk(c, 10, 6, 4, '#000');
+      c.globalCompositeOperation = 'source-over';
+      for (let y = -3; y <= 3; y++) {               // mailles
+        for (let x = -3; x <= 3; x++) if (x * x + y * y <= 12 && ((x + y) & 1) === 0) pxRect(c, 10 + x, 6 + y, 1, 1, light);
+      }
+      break;
+    case 'chair':
+      pxLine(c, 3, 14, 11, 3, acc);                 // armature
+      pxLine(c, 12, 14, 5, 6, acc);
+      for (let k = 0; k < 4; k++) pxRect(c, 5 + k, 4 + k * 2, 5, 2, k % 2 ? '#f1e3c0' : col);
+      pxRect(c, 2, 14, 12, 1, dark);
+      break;
+    case 'radio':
+      pxLine(c, 11, 1, 13, 5, '#d8dee4');           // antenne
+      pxRect(c, 2, 5, 12, 9, col);
+      pxRect(c, 2, 5, 12, 1, light);
+      for (let y = 7; y < 12; y += 2) for (let x = 4; x < 8; x += 2) pxRect(c, x, y, 1, 1, dark);
+      pxDisk(c, 11, 9, 2, acc);
+      pxRect(c, 11, 9, 1, 1, dark);
+      break;
+    case 'sonar':
+      pxRect(c, 3, 2, 10, 12, col);
+      pxRect(c, 4, 3, 8, 7, '#0a1a0a');
+      pxRect(c, 4, 8, 8, 1, acc);                   // fond du lac
+      pxRect(c, 6, 5, 2, 1, acc);                   // poisson
+      pxRect(c, 9, 6, 2, 1, acc);
+      pxRect(c, 5, 11, 2, 2, light);
+      pxRect(c, 9, 11, 2, 2, '#c03a3a');
+      break;
+    case 'compass':
+      pxDisk(c, 8, 8, 6, col);
+      pxDisk(c, 8, 8, 5, '#f3e6c8');
+      pxRect(c, 7, 1, 2, 2, dark);
+      pxLine(c, 8, 8, 11, 4, acc);                  // aiguille
+      pxLine(c, 8, 8, 5, 12, '#5a6070');
+      pxRect(c, 8, 8, 1, 1, dark);
+      break;
+    case 'lantern':
+      pxRect(c, 6, 1, 4, 1, col);                   // anse
+      pxRect(c, 5, 2, 1, 2, col);
+      pxRect(c, 10, 2, 1, 2, col);
+      pxRect(c, 4, 4, 8, 2, col);
+      pxRect(c, 5, 6, 6, 6, acc);                   // verre allumé
+      pxRect(c, 7, 7, 2, 4, '#fff4c0');
+      pxRect(c, 4, 12, 8, 2, col);
+      pxRect(c, 5, 6, 1, 6, dark);
+      break;
+    case 'notebook':
+      pxRect(c, 3, 2, 10, 12, col);
+      pxRect(c, 4, 3, 8, 10, acc);
+      for (const y of [5, 7, 9, 11]) pxRect(c, 5, y, 6, 1, '#8a7a5a');
+      pxRect(c, 3, 7, 10, 2, dark);                 // élastique
+      pxRect(c, 12, 2, 1, 12, dark);
+      break;
+    case 'jar':
+      pxRect(c, 5, 1, 6, 2, '#8a5a32');             // couvercle
+      pxRect(c, 4, 3, 8, 11, col);
+      pxRect(c, 5, 4, 6, 9, '#1a2a30');
+      pxRect(c, 4, 3, 1, 11, light);
+      for (const [x, y] of [[6, 6], [9, 5], [7, 9], [10, 10], [6, 12]]) pxRect(c, x, y, 1, 1, acc);
+      break;
+    case 'harmonica':
+      pxRect(c, 1, 5, 14, 6, col);
+      pxRect(c, 1, 5, 14, 1, light);
+      pxRect(c, 1, 10, 14, 1, dark);
+      for (let x = 2; x < 14; x += 2) pxRect(c, x, 7, 1, 2, '#1a1a20');
+      pxRect(c, 1, 5, 1, 6, acc);
+      pxRect(c, 14, 5, 1, 6, acc);
+      break;
+    case 'pearl':
+      pxEllipse(c, 8, 12, 6, 3, '#6a5a8a');         // coquille
+      pxEllipse(c, 8, 12, 5, 2, '#a090c0');
+      pxDisk(c, 8, 7, 4, col);
+      pxDisk(c, 7, 6, 1, '#ffffff');
+      pxRect(c, 10, 9, 1, 1, acc);
+      break;
+    case 'necro':                                   // livre de peau, visage cousu, œil vert
+      pxRect(c, 2, 1, 12, 14, col);
+      pxRect(c, 2, 1, 2, 14, dark);
+      pxRect(c, 13, 2, 1, 12, '#c8b890');
+      pxEllipse(c, 9, 7, 3, 2, '#e8d8b0');
+      pxDisk(c, 9, 7, 1, acc);
+      pxRect(c, 9, 7, 1, 1, '#0a1a0a');
+      pxRect(c, 6, 11, 6, 1, '#2a120c');            // bouche cousue
+      for (const x of [7, 9, 11]) pxRect(c, x, 10, 1, 3, '#c8b890');
+      for (const [x, y] of [[5, 3], [12, 3], [5, 13]]) pxRect(c, x, y, 1, 1, acc);
+      break;
+    default:                                        // emplacement vide : amulette
+      pxRect(c, 7, 1, 2, 1, col);
+      pxLine(c, 4, 2, 7, 1, col);
+      pxLine(c, 9, 1, 12, 2, col);
+      pxLine(c, 4, 2, 7, 8, col);
+      pxLine(c, 12, 2, 9, 8, col);
+      pxDisk(c, 8, 10, 3, col);
+      pxDisk(c, 8, 10, 1, acc);
+  }
+}
+
+// Malédiction : sceau 16×16 dans la couleur de la malédiction (un œil dans un cercle)
+const curseIconCache = {};
+function curseIcon(cu) {
+  if (curseIconCache[cu.id]) return curseIconCache[cu.id];
+  const cv = makeCanvas(16, 16);
+  const c = cv.getContext('2d');
+  pxDisk(c, 8, 8, 7, shadeHex(cu.color, 0.6));
+  pxDisk(c, 8, 8, 6, '#140a1a');
+  for (const [x, y] of [[8, 1], [8, 14], [1, 8], [14, 8]]) pxRect(c, x, y, 1, 1, cu.color);
+  pxEllipse(c, 8, 8, 4, 2, cu.color);
+  pxDisk(c, 8, 8, 1, '#140a1a');
+  pxRect(c, 7, 7, 1, 1, shadeHex(cu.color, 1.5));
+  pixelize(cv, '#0a0610');
+  return (curseIconCache[cu.id] = cv.toDataURL());
 }
 
 // ===========================================================================

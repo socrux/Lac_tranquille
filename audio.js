@@ -405,6 +405,16 @@ const Sound = (() => {
       tone({ t: end, f: abom ? 233 : 988, dur: 0.08, type: 'square', vol: 0.04 });
       tone({ t: end + 0.08, f: abom ? 311 : 1319, dur: 0.4, type: 'square', vol: 0.04, send: 0.3 });
     },
+    // pacte avec la sorcière : accords dissonants qui descendent, grondement grave
+    curse() {
+      if (!ready()) return;
+      const t = now();
+      [[62, 63], [58, 59], [53, 54]].forEach(([a, b], i) => {
+        tone({ t: t + i * 0.22, f: mtof(a), slide: mtof(a - 1), dur: 0.5, type: 'sawtooth', vol: 0.025, send: 0.5 });
+        tone({ t: t + i * 0.22, f: mtof(b), slide: mtof(b - 1), dur: 0.5, type: 'triangle', vol: 0.04, send: 0.5 });
+      });
+      noise({ t: t + 0.1, dur: 1.4, vol: 0.18, type: 'lowpass', freq: 180, freqTo: 50, attack: 0.3 });
+    },
     // le poisson s'échappe
     miss() {
       if (!ready()) return;
