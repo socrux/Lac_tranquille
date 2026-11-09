@@ -10,7 +10,10 @@ permissions:
   contents: write   # pousser leaderboard.json
   issues: write     # commenter, étiqueter et fermer l'issue
 
-# un seul traitement à la fois, pour ne jamais perdre un score sur un conflit de push
+# un seul traitement à la fois, pour ne jamais perdre un score sur un conflit de push.
+# Limite connue : GitHub ne garde qu'UN traitement en attente dans ce groupe ; si plusieurs scores
+# arrivent pendant un traitement, les plus anciens en attente sont annulés (issue laissée ouverte,
+# le joueur peut renvoyer son score). Le script limite aussi à un envoi toutes les 10 min par compte.
 concurrency:
   group: leaderboard
   cancel-in-progress: false
@@ -20,9 +23,10 @@ jobs:
     if: startsWith(github.event.issue.title, '[Score]')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # actions épinglées sur un commit précis (un tag peut être déplacé) ; mettre à jour SHA et commentaire ensemble
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020   # v4.4.0
         with:
           node-version: 20
 
@@ -32,11 +36,13 @@ jobs:
 
       - name: Enregistrer leaderboard.json
         if: steps.score.outputs.status == 'ok'
+        env:
+          LOGIN: ${{ github.event.issue.user.login }}   # passé par variable, jamais interpolé dans le script
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add leaderboard.json
-          git commit -m "Classement : score de @${{ github.event.issue.user.login }}" || exit 0
+          git commit -m "Classement : score de @$LOGIN" || exit 0
           for i in 1 2 3; do
             git pull --rebase && git push && exit 0
             sleep 5
