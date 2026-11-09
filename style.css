@@ -718,3 +718,58 @@ img.ghost { opacity: 0.45; }
 /* ---------- Caisse relevée : objets trouvés ---------- */
 .pot-items { display: flex; flex-wrap: wrap; gap: 0.4em; justify-content: center; margin-bottom: 0.5em; }
 .pot-items .cc-loot { margin: 0; }
+
+/* ---------- Accessoires ---------- */
+.inv-acc-h { margin: 0.7em 0 0.2em !important; }
+.outfit { grid-template-columns: repeat(4, 1fr); }
+
+/* ---------- Malédictions (Morgane des Brumes) ---------- */
+.hud-icon { position: relative; }
+/* pastille : des malédictions attendent un choix aujourd'hui */
+.hud-icon.notify::after {
+  content: '';
+  position: absolute;
+  top: 0.25em;
+  right: 0.35em;
+  width: 0.7em;
+  height: 0.7em;
+  background: #7af0a0;
+  border: 0.12em solid #0e2a1a;
+  border-radius: 50%;
+  animation: notify-pulse 1.4s ease-in-out infinite;
+}
+@keyframes notify-pulse { 50% { transform: scale(1.35); } }
+
+#panel-curses { background: rgba(30, 18, 52, 0.95); box-shadow: inset 0 0 0 0.14em #7a4ac8, 0 0.3em 0 rgba(0, 0, 0, 0.35); }
+.witch-talk { display: flex; align-items: center; gap: 1em; margin-bottom: 0.9em; }
+.witch-portrait { width: 5.5em; height: 5.5em; flex: none; padding: 0.3em; background: rgba(10, 6, 20, 0.7); border: 0.14em solid #7a4ac8; border-radius: 0.35em; }
+.witch-bubble { flex: 1; padding: 0.6em 0.9em; background: rgba(10, 6, 20, 0.6); border-radius: 0.35em; }
+.witch-bubble b { color: #c89aff; }
+.witch-bubble p { margin: 0.25em 0 0; font-style: italic; opacity: 0.92; }
+.curse-list { flex: 1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.9em; overflow-y: auto; align-content: start; }
+.curse-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+  padding: 0.8em;
+  background: rgba(14, 8, 26, 0.75);
+  border-radius: 0.35em;
+  box-shadow: inset 0 0 0 0.14em var(--cc);
+  transition: opacity 0.2s, transform 0.2s;
+}
+.curse-card.chosen { box-shadow: inset 0 0 0 0.2em var(--cc), 0 0 1.2em var(--cc); transform: translateY(-0.2em); }
+.curse-card.dim { opacity: 0.45; }
+.curse-head { display: flex; align-items: center; gap: 0.5em; font-size: 1.2em; }
+.curse-head img { width: 2em; height: 2em; }
+.curse-head b { color: var(--cc); font-weight: 600; }
+.curse-desc { margin: 0; flex: 1; font-size: 0.9em; opacity: 0.85; }
+.curse-fx { display: flex; flex-direction: column; gap: 0.15em; font-size: 0.95em; }
+.curse-fx .up { color: #7cf08a; }
+.curse-fx .down { color: #ff7a6a; }
+.curse-card .btn { align-self: stretch; }
+.curse-tag { text-align: center; font-weight: 600; color: var(--cc); padding: 0.3em; border: 0.12em dashed var(--cc); border-radius: 0.3em; }
+.curse-foot { display: flex; align-items: center; gap: 1em; margin-top: 0.8em; }
+.curse-foot span { flex: 1; opacity: 0.85; }
+.hw-curse { display: flex; align-items: center; gap: 0.3em; font-weight: 600; }
+.hw-curse img { width: 1.2em; height: 1.2em; }
+@media (max-aspect-ratio: 4/3) { .curse-list { grid-template-columns: 1fr; } }

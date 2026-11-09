@@ -9,18 +9,20 @@
 // value : prix de revente (en pièces) pour 1 unité de l'effet.
 const pctTxt = (v) => `${Math.round(v * 100)} %`;
 const numTxt = (v) => String(Math.round(v * 100) / 100).replace('.', ',');
+// signe d'une valeur : « + » pour un gain, « − » pour une perte (inv : l'effet est une réduction)
+const sgn = (v, inv = false) => ((v < 0) !== inv ? '−' : '+');
 const FX = {
-  gold:     { label: (v) => `Or récolté +${pctTxt(v)}`,            value: 1500 },
-  rare:     { label: (v) => `Rareté +${pctTxt(v)}`,                value: 1000 },
-  abom:     { label: (v) => `Abomination +${numTxt(v * 100)} %`,   value: 6000 },
-  window:   { label: (v) => `Réaction +${numTxt(v)} s`,            value: 1500 },
-  vigor:    { label: (v) => `Vigueur des poissons −${pctTxt(v)}`,  value: 1000 },
-  speed:    { label: (v) => `Attente −${pctTxt(v)}`,               value: 1000 },
-  bar:      { label: (v) => `Barre verte +${pctTxt(v)}`,           value: 1000 },
-  luck:     { label: (v) => `Chance d'objet +${pctTxt(v)}`,        value: 400 },
-  chest:    { label: (v) => `Coffres +${pctTxt(v)}`,               value: 200 },
-  crate:    { label: (v) => `Vitesse des caisses +${pctTxt(v)}`,   value: 400 },
-  perfect:  { label: (v) => `Bonus Perfect +${pctTxt(v)}`,         value: 300 },
+  gold:     { label: (v) => `Or récolté ${sgn(v)}${pctTxt(Math.abs(v))}`,            value: 1500 },
+  rare:     { label: (v) => `Rareté ${sgn(v)}${pctTxt(Math.abs(v))}`,                value: 1000 },
+  abom:     { label: (v) => `Abomination ${sgn(v)}${numTxt(Math.abs(v) * 100)} %`,   value: 6000 },
+  window:   { label: (v) => `Réaction ${sgn(v)}${numTxt(Math.abs(v))} s`,            value: 1500 },
+  vigor:    { label: (v) => `Vigueur des poissons ${sgn(v, true)}${pctTxt(Math.abs(v))}`, value: 1000 },
+  speed:    { label: (v) => `Attente ${sgn(v, true)}${pctTxt(Math.abs(v))}`,         value: 1000 },
+  bar:      { label: (v) => `Barre verte ${sgn(v)}${pctTxt(Math.abs(v))}`,           value: 1000 },
+  luck:     { label: (v) => `Chance d'objet ${sgn(v)}${pctTxt(Math.abs(v))}`,        value: 400 },
+  chest:    { label: (v) => `Coffres ${sgn(v)}${pctTxt(Math.abs(v))}`,               value: 200 },
+  crate:    { label: (v) => `Vitesse des caisses ${sgn(v)}${pctTxt(Math.abs(v))}`,   value: 400 },
+  perfect:  { label: (v) => `Bonus Perfect ${sgn(v)}${pctTxt(Math.abs(v))}`,         value: 300 },
   legend:   { label: (v) => `Légendaires ×${numTxt(v)}`,           value: 300, mul: true },
   abomMul:  { label: (v) => `Abominations ×${numTxt(v)}`,          value: 300, mul: true },
   cthulhu:  { label: (v) => `Grand Ancien ×${numTxt(v)}`,          value: 250, mul: true },
@@ -70,14 +72,25 @@ function fxDiff(newFx, oldFx = {}) {
 // ===========================================================================
 // Équipement
 // ===========================================================================
+// Types d'objets (champ « slot » d'un objet) : 5 vêtements et les accessoires
+const ITEM_KINDS = [
+  { id: 'hook',   name: 'Hameçon',    plural: 'Hameçons' },
+  { id: 'gloves', name: 'Gants',      plural: 'Gants' },
+  { id: 'boots',  name: 'Bottes',     plural: 'Bottes' },
+  { id: 'pants',  name: 'Pantalon',   plural: 'Pantalons' },
+  { id: 'jacket', name: 'Veste',      plural: 'Vestes' },
+  { id: 'acc',    name: 'Accessoire', plural: 'Accessoires' },
+];
+const KIND_BY_ID = Object.fromEntries(ITEM_KINDS.map((k) => [k.id, k]));
+// Emplacements d'équipement : un par vêtement, trois pour les accessoires (kind : type accepté)
 const SLOTS = [
-  { id: 'hook',   name: 'Hameçon',  plural: 'Hameçons' },
-  { id: 'gloves', name: 'Gants',    plural: 'Gants' },
-  { id: 'boots',  name: 'Bottes',   plural: 'Bottes' },
-  { id: 'pants',  name: 'Pantalon', plural: 'Pantalons' },
-  { id: 'jacket', name: 'Veste',    plural: 'Vestes' },
+  ...ITEM_KINDS.filter((k) => k.id !== 'acc').map((k) => ({ id: k.id, name: k.name, kind: k.id })),
+  { id: 'acc1', name: 'Accessoire 1', kind: 'acc' },
+  { id: 'acc2', name: 'Accessoire 2', kind: 'acc' },
+  { id: 'acc3', name: 'Accessoire 3', kind: 'acc' },
 ];
 const SLOT_BY_ID = Object.fromEntries(SLOTS.map((s) => [s.id, s]));
+const ACC_SLOTS = SLOTS.filter((s) => s.kind === 'acc');
 
 // tier : rareté (0 Commun → 4 Légendaire). Les objets se trouvent sur les poissons et dans les caisses.
 const ITEMS = [
@@ -142,6 +155,36 @@ const ITEMS = [
     desc: "Galons dorés, boutons de cuivre. Les poissons vous saluent." },
   { id: 'v_noyes',   slot: 'jacket', tier: 4, name: 'Manteau des noyés',    color: '#2a3a4a', accent: '#9ad0e0', fx: { gold: 0.4, rare: 0.3, abom: 0.03 },
     desc: "Il est toujours trempé. Les poches sont pleines de pièces anciennes." },
+
+  // --- accessoires : trois emplacements, effets variés
+  { id: 'a_guide',    slot: 'acc', tier: 0, icon: 'guide',    name: 'Guide du pêcheur débutant', color: '#3a8ce0', accent: '#f5d04a', fx: { window: 0.04, rare: 0.05 },
+    desc: "« Chapitre 1 : tenir la canne par le bon bout. » Annoté au crayon par un ancien propriétaire." },
+  { id: 'a_thermos',  slot: 'acc', tier: 0, icon: 'thermos',  name: 'Thermos de café',          color: '#c03a3a', accent: '#d8dee4', fx: { speed: 0.05 },
+    desc: "Encore chaud. On attend beaucoup mieux avec un café." },
+  { id: 'a_patte',    slot: 'acc', tier: 0, icon: 'paw',      name: 'Patte de lapin',           color: '#e8dcc8', accent: '#a07a5a', fx: { luck: 0.15 },
+    desc: "Elle porte chance. Pas au lapin, visiblement." },
+  { id: 'a_filet',    slot: 'acc', tier: 1, icon: 'net',      name: 'Filet de pêche',           color: '#c8b48a', accent: '#8a5a32', fx: { bar: 0.08, chest: 0.2 },
+    desc: "Une grande épuisette au manche de bois : plus rien ne s'échappe au dernier moment." },
+  { id: 'a_transat',  slot: 'acc', tier: 1, icon: 'chair',    name: 'Chaise de transat',        color: '#3aa0a0', accent: '#f1e3c0', fx: { speed: 0.1, vigor: 0.04 },
+    desc: "Pliante, rayée, parfaite. La patience devient un art de vivre." },
+  { id: 'a_radio',    slot: 'acc', tier: 1, icon: 'radio',    name: 'Petite radio',             color: '#8a4a24', accent: '#d8dee4', fx: { speed: 0.06, gold: 0.05 },
+    desc: "Elle capte une seule station, qui ne passe que de vieilles chansons de marins." },
+  { id: 'a_sondeur',  slot: 'acc', tier: 2, icon: 'sonar',    name: 'Sondeur portatif',         color: '#2a3a4a', accent: '#5ee05e', fx: { rare: 0.25, speed: 0.06 },
+    desc: "Un petit écran vert qui montre les poissons. Et parfois une forme beaucoup trop grande." },
+  { id: 'a_boussole', slot: 'acc', tier: 2, icon: 'compass',  name: 'Boussole de laiton',       color: '#c89a3a', accent: '#c03a3a', fx: { luck: 0.3, chest: 0.3 },
+    desc: "Son aiguille indique les trésors engloutis. Ou le nord. Elle hésite souvent." },
+  { id: 'a_lanterne', slot: 'acc', tier: 2, icon: 'lantern',  name: 'Lanterne à huile',         color: '#3a3a40', accent: '#ffc040', fx: { rare: 0.15, abom: 0.01 },
+    desc: "Sa lumière attire les poissons des profondeurs… et ce qui les chasse." },
+  { id: 'a_carnet',   slot: 'acc', tier: 3, icon: 'notebook', name: 'Carnet du vieux pêcheur',  color: '#5e3a20', accent: '#f3e6c8', fx: { rare: 0.3, window: 0.1 },
+    desc: "Cinquante ans de secrets du lac, griffonnés dans les marges. Les dernières pages sont arrachées." },
+  { id: 'a_lucioles', slot: 'acc', tier: 3, icon: 'jar',      name: 'Bocal de lucioles',        color: '#a8c8d0', accent: '#d8ff60', fx: { luck: 0.5, crate: 0.3 },
+    desc: "Elles clignotent toutes en même temps, comme si elles comptaient quelque chose." },
+  { id: 'a_harmonica', slot: 'acc', tier: 3, icon: 'harmonica', name: 'Harmonica',             color: '#b8c4cc', accent: '#3a5aa0', fx: { perfect: 0.6, vigor: 0.1 },
+    desc: "Une petite mélodie et les poissons se calment. Personne ne sait pourquoi." },
+  { id: 'a_perle',    slot: 'acc', tier: 4, icon: 'pearl',    name: 'Perle des abysses',        color: '#d8e0f0', accent: '#7a5ac8', fx: { gold: 0.35, legend: 1.5 },
+    desc: "Grosse comme un œuf, elle reflète un ciel qui n'est pas le nôtre." },
+  { id: 'a_necro',    slot: 'acc', tier: 4, icon: 'necro',    name: 'Necronomicon',             color: '#4a2a1e', accent: '#7af0a0', fx: { abom: 0.05, abomMul: 1.5, cthulhu: 2, rare: 0.3 },
+    desc: "Le livre interdit de l'Arabe fou Abdul Alhazred, relié d'une peau qui n'est pas du cuir. « N'est pas mort ce qui à jamais dort… »" },
 ];
 const ITEM_BY_ID = Object.fromEntries(ITEMS.map((it) => [it.id, it]));
 const ITEM_TIER_WEIGHT = [40, 24, 12, 4, 1.2];
@@ -240,6 +283,64 @@ const WEATHERS = [
     vis: { rainbow: 1, overcast: 0.1 } },
 ];
 const WEATHER_BY_ID = Object.fromEntries(WEATHERS.map((w) => [w.id, w]));
+
+// ===========================================================================
+// Malédictions : proposées chaque jour par la Sorcière des Brumes, après la première abomination.
+// buff / debuff : effets (mêmes clés que FX), affichés en vert / rouge. vis : effet visuel à l'écran.
+// ===========================================================================
+const WITCH = { name: 'Morgane des Brumes',
+  greet: [
+    "Approche, pêcheur… Le lac m'a parlé de toi.",
+    "Tu as vu ce qui dort sous l'eau. Maintenant, tu peux en payer le prix.",
+    "Chaque cadeau a son revers. Choisis bien… ou ne choisis rien.",
+    "Les profondeurs t'observent. Autant qu'elles te servent.",
+  ] };
+const CURSES = [
+  { id: 'lune',      name: 'Lune de sang',          color: '#d83a3a', vis: 'blood',
+    buff: { gold: 0.6 },                  debuff: { vigorMul: 1.3 },
+    desc: "Une lune rouge se lève en plein jour. Les poissons valent de l'or… et se battent comme des diables." },
+  { id: 'brume',     name: 'Brume des marais',      color: '#6ac85a', vis: 'miasma',
+    buff: { rare: 0.4 },                  debuff: { speed: -0.3 },
+    desc: "Une brume verte et tiède couvre le lac. Les poissons rares s'y cachent, mais ils prennent leur temps." },
+  { id: 'yeux',      name: 'Les Mille Yeux',        color: '#e0c040', vis: 'eyes',
+    buff: { luck: 0.8, chest: 0.8 },      debuff: { window: -0.12 },
+    desc: "Des yeux s'ouvrent partout autour de vous. Ils voient les trésors… et vous rendent nerveux." },
+  { id: 'encre',     name: "Pluie d'encre",         color: '#4a3a6a', vis: 'ink',
+    buff: { abomMul: 2.5 },               debuff: { gold: -0.3 },
+    desc: "Il pleut une encre noire et froide. Les abominations adorent ça. Les acheteurs beaucoup moins." },
+  { id: 'silence',   name: 'Le Grand Silence',      color: '#a0a8b0', vis: 'mute',
+    buff: { perfect: 1, bar: 0.15 },      debuff: { luck: -0.6, chest: -0.6 },
+    desc: "Les couleurs et les sons s'éteignent. Votre concentration est parfaite, mais le lac ne donne plus rien." },
+  { id: 'vertige',   name: 'Vertige',               color: '#5ac8e0', vis: 'wobble',
+    buff: { legend: 2.5 },                debuff: { bar: -0.2 },
+    desc: "Le monde tangue. Les géants du lac remontent, mais la barre vous glisse des mains." },
+  { id: 'faim',      name: 'Faim des profondeurs',  color: '#3fd08a', vis: 'tentacles',
+    buff: { cthulhu: 4, abom: 0.03 },     debuff: { gold: -0.25 },
+    desc: "Des tentacules frôlent la coque. Quelque chose d'immense a faim, et il vous a remarqué." },
+  { id: 'cendres',   name: 'Pluie de cendres',      color: '#e08a3a', vis: 'ash',
+    buff: { crate: 0.8, speed: 0.1 },     debuff: { rare: -0.15 },
+    desc: "Des cendres tombent d'un ciel sans feu. Les caisses se remplissent vite, de prises bien ordinaires." },
+  { id: 'nuit',      name: 'Nuit sans fin',         color: '#3a4a8a', vis: 'dark',
+    buff: { rare: 0.3, abomMul: 1.5 },    debuff: { vigor: -0.15 },
+    desc: "L'obscurité tombe en plein jour. Seule votre lanterne éclaire le lac. Ce qui mord est plus féroce." },
+  { id: 'murmures',  name: 'Murmures',              color: '#b05ae0', vis: 'runes',
+    buff: { window: 0.2, vigor: 0.15 },   debuff: { gold: -0.2 },
+    desc: "Des voix soufflent où lancer, quand ferrer. Elles réclament une part de chaque prise." },
+  { id: 'etoiles',   name: 'Étoiles mortes',        color: '#c8a0ff', vis: 'stars',
+    buff: { luck: 0.5, gold: 0.25 },      debuff: { vigorMul: 1.25 },
+    desc: "Des étoiles éteintes depuis longtemps tombent dans le lac. Elles laissent des trésors… et des poissons enragés." },
+  { id: 'vers',      name: 'Grouillement',          color: '#c87a6a', vis: 'worms',
+    buff: { speed: 0.25 },                debuff: { gold: -0.15, perfect: -0.5 },
+    desc: "Des vers sortent de partout, même de la barque. Les poissons mordent sans arrêt, mais le cœur n'y est pas." },
+];
+const CURSE_BY_ID = Object.fromEntries(CURSES.map((c) => [c.id, c]));
+const CURSE_OFFERS = 3;
+// effets totaux d'une malédiction (bonus et malus réunis)
+function curseFx(c) {
+  const fx = { ...c.buff };
+  for (const [k, v] of Object.entries(c.debuff)) fx[k] = k in fx ? (FX[k].mul ? fx[k] * v : fx[k] + v) : v;
+  return fx;
+}
 
 // La nuit est aussi un « événement » : plus d'abominations et de poissons rares
 const NIGHT = { id: 'nuit', name: 'Nuit', fx: { abomMul: 1.5, rare: 0.2 },
