@@ -4,7 +4,20 @@
 const Sound = (() => {
   const KEY = 'lacTranquille.settings';
   const settings = { music: 0.5, sfx: 0.8, muted: false };
-  try { Object.assign(settings, JSON.parse(localStorage.getItem(KEY)) || {}); } catch { /* stockage indisponible */ }
+  // réglages relus depuis localStorage : donnée non fiable, chaque champ est validé (volume fini entre 0 et 1)
+  const vol = (x, d) => (typeof x === 'number' && Number.isFinite(x) ? Math.min(1, Math.max(0, x)) : d);
+  try {
+    const raw = JSON.parse(localStorage.getItem(KEY));
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      settings.music = vol(raw.music, settings.music);
+      settings.sfx = vol(raw.sfx, settings.sfx);
+      settings.muted = raw.muted === true;
+    }
+  } catch { /* stockage indisponible */ }
+
+  // Tempo de la musique, déclaré avant init() qui l'utilise (évite toute zone morte temporelle)
+  const BPM = 84;
+  const E8 = 60 / BPM / 2;          // durée d'une croche
 
   let ac = null;
   let master, musicBus, sfxBus, musicDelay, sfxDelay, noiseBuf;
@@ -75,8 +88,11 @@ const Sound = (() => {
     sfxBus.gain.setTargetAtTime(settings.sfx, t, 0.05);
   }
 
+  // seules les trois clés connues sont modifiables, avec la même validation qu'à la lecture
   function set(key, value) {
-    settings[key] = value;
+    if (key === 'muted') settings.muted = value === true;
+    else if (key === 'music' || key === 'sfx') settings[key] = vol(value, settings[key]);
+    else return;
     try { localStorage.setItem(KEY, JSON.stringify(settings)); } catch { /* idem */ }
     applyVolumes();
   }
@@ -131,9 +147,6 @@ const Sound = (() => {
   // ---------------------------------------------------------------------------
   // Musique : petite boucle chiptune calme, 16 mesures en fa majeur, 84 bpm
   // ---------------------------------------------------------------------------
-  const BPM = 84;
-  const E8 = 60 / BPM / 2;          // durée d'une croche
-
   const CHORDS = [
     { bass: 41, notes: [53, 57, 60, 64] },  // Fmaj7
     { bass: 40, notes: [52, 55, 59, 62] },  // Em7

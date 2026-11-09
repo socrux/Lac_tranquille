@@ -14,7 +14,7 @@ const BOAT_Y = 222;          // haut de la coque
 const $ = (id) => document.getElementById(id);
 
 // Version du jeu : à mettre à jour à chaque pull request (MAJEUR.MINEUR.CORRECTIF)
-const GAME_VERSION = '1.1.0';
+const GAME_VERSION = '1.1.1';
 
 // ===========================================================================
 // Données
@@ -276,7 +276,8 @@ const CORRUPTION_MAX_ABOMS = 30;                                // abominations 
 const rand = (a, b) => a + Math.random() * (b - a);
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const lerp = (a, b, t) => a + (b - a) * t;
-const fmtNum = (n) => n.toLocaleString('fr-FR');
+// n'accepte que des nombres finis : une valeur corrompue s'affiche 0 au lieu d'être injectée dans le DOM
+const fmtNum = (n) => (typeof n === 'number' && Number.isFinite(n) ? n : 0).toLocaleString('fr-FR');
 const fmtKg = (kg) => (kg < 1 ? `${Math.round(kg * 1000)} g` : `${kg.toFixed(2).replace('.', ',')} kg`);
 const fmtCm = (cm) => `${cm.toFixed(1).replace('.', ',')} cm`;
 // Pourcentage lisible, avec plus de décimales pour les toutes petites chances (ex. 0,01 %)
@@ -286,7 +287,8 @@ function fmtPct(x) {
   return `${p.toFixed(digits).replace(/\.?0+$/, '').replace('.', ',')} %`;
 }
 const fishName = (f, abom) => (abom ? f.abomName : f.name);
-const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+// échappe aussi ` et = : protège même un attribut qui serait écrit sans guillemets
+const escapeHtml = (s) => String(s).replace(/[&<>"'`=]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;', '=': '&#61;' }[ch]));
 const dexKey = (f, abom) => (abom ? `${f.id}:abom` : f.id);
 const coinImg = () => `<img class="coin" src="${ICONS.coin}" alt="pièces">`;
 
@@ -328,47 +330,119 @@ function emptyProgress() {
   };
 }
 
-function migrate(s) {
-  if (!s || typeof s !== 'object') return null;
+// --- Validation d'une sauvegarde (localStorage ou fichier importé) : donnée NON FIABLE.
+// Rien n'est recopié en bloc : chaque champ est relu, vérifié (type, valeur connue) et borné,
+// sur le modèle de validLook(). Une valeur invalide est remplacée par la valeur par défaut.
+const SAVE_LIM = { money: 1e10, count: 1e7, bait: 1e5, pots: 50, time: 1e9 };
+const SAVE_FILE_MAX = 1024 * 1024;              // taille maximale d'un fichier de sauvegarde importé (1 Mo)
+const isObj = (x) => !!x && typeof x === 'object' && !Array.isArray(x);
+const vObj = (x) => (isObj(x) ? x : {});
+const vArr = (x) => (Array.isArray(x) ? x : []);
+const vNum = (x, max, min = 0) => (typeof x === 'number' && Number.isFinite(x) ? clamp(x, min, max) : min);
+const vInt = (x, max, min = 0) => Math.floor(vNum(x, max, min));
+const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+
+function validPot(x) {
+  if (!isObj(x)) return null;
+  const t = POT_BY_ID[x.type];
+  if (!t || !hasOwn(POT_BY_ID, x.type)) return null;
+  const now = Date.now();
+  return {
+    type: t.id,
+    bait: hasOwn(BAIT_BY_ID, x.bait) ? x.bait : 'pain',
+    placedAt: vInt(x.placedAt, now),
+    nextAt: vInt(x.nextAt, now + 86400000),
+    contents: vArr(x.contents).slice(0, t.capacity).map((c) => {
+      if (!isObj(c) || !hasOwn(CRUST_BY_ID, c.id)) return null;
+      const cr = CRUST_BY_ID[c.id];
+      return {
+        id: cr.id, abom: c.abom === true,
+        size: vNum(c.size, cr.cm[1] * 3), weight: vNum(c.weight, cr.kg[1] * 3), money: vInt(c.money, cr.value * 50),
+      };
+    }).filter(Boolean),
+  };
+}
+
+function validProgress(s) {
+  if (!isObj(s)) return null;
   const p = emptyProgress();
-  if (s.v !== 2) {
-    p.stats.caught = s.count || 0;
+  if (s.v !== 2) {                              // ancienne sauvegarde v1 : seul le compteur est repris
+    if (!hasOwn(s, 'count')) return null;       // un JSON quelconque n'est pas une sauvegarde
+    p.stats.caught = vInt(s.count, SAVE_LIM.count);
     return p;
   }
-  const out = {
-    ...p, ...s,
-    stats: { ...p.stats, ...s.stats },
-    baits: { ...s.baits },
-    dex: { ...s.dex },
-    potsOwned: { ...s.potsOwned },
-    achievements: { ...s.achievements },
-    pots: [0, 1].map((i) => (s.pots?.[i] && POT_BY_ID[s.pots[i].type] ? s.pots[i] : null)),
-  };
-  if (!ROD_BY_ID[out.rod]) out.rod = 'bambou';
-  if (!BAIT_BY_ID[out.bait]) out.bait = 'pain';
-  out.rods = out.rods.filter((id) => ROD_BY_ID[id]);
-  if (!out.rods.includes('bambou')) out.rods.unshift('bambou');
-  // équipement : on ne garde que les objets connus, et un équipement doit pointer vers un objet de l'inventaire
-  out.items = (Array.isArray(s.items) ? s.items : []).filter((it) => it && ITEM_BY_ID[it.id] && Number.isFinite(it.uid));
-  out.itemSeq = Math.max(Number(s.itemSeq) || 0, ...out.items.map((it) => it.uid));
-  out.equip = {};
-  for (const sl of SLOTS) {
-    const it = out.items.find((x) => x.uid === s.equip?.[sl.id]);
-    if (it && ITEM_BY_ID[it.id].slot === sl.id) out.equip[sl.id] = it.uid;
+  p.money = vInt(s.money, SAVE_LIM.money);
+  // cannes : uniquement des cannes connues, sans doublon, la canne en bambou toujours présente
+  p.rods = [...new Set(vArr(s.rods).filter((id) => hasOwn(ROD_BY_ID, id)))];
+  if (!p.rods.includes('bambou')) p.rods.unshift('bambou');
+  p.rod = p.rods.includes(s.rod) ? s.rod : 'bambou';
+  // appâts : quantités entières, uniquement pour les appâts vendus en paquets
+  const baits = vObj(s.baits);
+  for (const b of BAITS) {
+    const n = b.pack && hasOwn(baits, b.id) ? vInt(baits[b.id], SAVE_LIM.bait) : 0;
+    if (n > 0) p.baits[b.id] = n;
   }
-  const allParts = BOATS.flatMap((b) => [...(b.parts || []), ...(b.special ? [b.special] : [])].map((p) => p.id));
-  out.boat = {
-    level: clamp(Math.floor(Number(s.boat?.level) || 1), 1, BOAT_MAX),
-    parts: (Array.isArray(s.boat?.parts) ? s.boat.parts : []).filter((id) => allParts.includes(id)),
+  p.bait = s.bait === 'pain' || p.baits[s.bait] > 0 ? s.bait : 'pain';
+  // carnet : uniquement les clés connues
+  const dex = vObj(s.dex);
+  for (const f of [...FISH, ...CRUSTS]) {
+    for (const ab of f.unique ? [false] : [false, true]) {
+      const k = dexKey(f, ab);
+      if (!hasOwn(dex, k)) continue;
+      const e = vObj(dex[k]);
+      p.dex[k] = {
+        count: Math.max(1, vInt(e.count, SAVE_LIM.count)),
+        maxSize: vNum(e.maxSize, f.cm[1] * 3), maxWeight: vNum(e.maxWeight, f.kg[1] * 3),
+      };
+    }
+  }
+  const owned = vObj(s.potsOwned);
+  for (const t of POTS) {
+    const n = hasOwn(owned, t.id) ? vInt(owned[t.id], SAVE_LIM.pots) : 0;
+    if (n > 0) p.potsOwned[t.id] = n;
+  }
+  p.pots = [0, 1].map((i) => validPot(vArr(s.pots)[i]));
+  const ach = vObj(s.achievements);
+  for (const a of ACHIEVEMENTS) {
+    if (hasOwn(ach, a.id) && vNum(ach[a.id], 1e14) > 0) p.achievements[a.id] = ach[a.id];
+  }
+  // inventaire : objets connus, identifiants entiers positifs et uniques
+  const seen = new Set();
+  p.items = vArr(s.items).slice(0, ITEM_CAP)
+    .filter((it) => isObj(it) && hasOwn(ITEM_BY_ID, it.id) && Number.isSafeInteger(it.uid) && it.uid > 0
+      && it.uid < Number.MAX_SAFE_INTEGER / 2 && !seen.has(it.uid) && seen.add(it.uid))
+    .map((it) => ({ uid: it.uid, id: it.id }));
+  p.itemSeq = p.items.reduce((m, it) => Math.max(m, it.uid), vInt(s.itemSeq, Number.MAX_SAFE_INTEGER / 2));
+  // équipement : doit pointer vers un objet de l'inventaire, dans le bon emplacement
+  const equip = vObj(s.equip);
+  for (const sl of SLOTS) {
+    const it = p.items.find((x) => x.uid === equip[sl.id]);
+    if (it && ITEM_BY_ID[it.id].slot === sl.id) p.equip[sl.id] = it.uid;
+  }
+  const boat = vObj(s.boat);
+  const allParts = BOATS.flatMap((b) => [...(b.parts || []), ...(b.special ? [b.special] : [])].map((x) => x.id));
+  p.boat = {
+    level: vInt(boat.level, BOAT_MAX, 1),
+    parts: [...new Set(vArr(boat.parts).filter((id) => allParts.includes(id)))],
   };
-  out.look = s.look ? validLook(s.look) : null;   // ancienne sauvegarde : le joueur créera son personnage
-  out.clock = Number.isFinite(s.clock) ? s.clock : CLOCK_START;
-  out.weather = s.weather && WEATHER_BY_ID[s.weather.id] ? s.weather : null;
-  return out;
+  p.look = s.look ? validLook(s.look) : null;   // ancienne sauvegarde : le joueur créera son personnage
+  p.clock = typeof s.clock === 'number' && Number.isFinite(s.clock) ? vNum(s.clock, SAVE_LIM.time) : CLOCK_START;
+  const w = vObj(s.weather);
+  p.weather = hasOwn(WEATHER_BY_ID, w.id) ? { id: w.id, until: vNum(w.until, SAVE_LIM.time) } : null;
+  // statistiques : uniquement les compteurs connus, nombres finis et bornés
+  const st = vObj(s.stats);
+  for (const k of Object.keys(p.stats)) {
+    if (k !== 'best' && hasOwn(st, k)) p.stats[k] = vNum(st[k], SAVE_LIM.money);
+  }
+  const best = vObj(st.best);
+  p.stats.best = hasOwn(FISH_BY_ID, best.id) || hasOwn(CRUST_BY_ID, best.id)
+    ? { id: best.id, abom: best.abom === true, weight: vNum(best.weight, 1e5), size: vNum(best.size, 1e5) }
+    : null;
+  return p;
 }
 
 function loadSave() {
-  try { return migrate(JSON.parse(localStorage.getItem(SAVE_KEY))); } catch { return null; }
+  try { return validProgress(JSON.parse(localStorage.getItem(SAVE_KEY))); } catch { return null; }
 }
 function writeSave() {
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(progress)); } catch { /* stockage indisponible */ }
@@ -2535,9 +2609,13 @@ function refreshMenu() {
   confirmNew = false;
   $('btn-new').textContent = 'Nouvelle partie';
   $('btn-continue').disabled = !save;
-  $('save-info').innerHTML = save
-    ? `Partie en cours${save.look?.name ? ` de ${escapeHtml(save.look.name)}` : ''} : jour ${dayOf(save.clock)} · ${save.stats.caught} poisson${save.stats.caught > 1 ? 's' : ''} · ${fmtNum(save.money)} ${coinImg()}`
+  // texte construit avec textContent (aucune donnée de la sauvegarde n'est interprétée comme du HTML),
+  // puis l'icône de pièce (balisage interne au jeu) ajoutée à la fin
+  const info = $('save-info');
+  info.textContent = save
+    ? `Partie en cours${save.look?.name ? ` de ${save.look.name}` : ''} : jour ${dayOf(save.clock)} · ${fmtNum(save.stats.caught)} poisson${save.stats.caught > 1 ? 's' : ''} · ${fmtNum(save.money)} `
     : '';
+  if (save) info.insertAdjacentHTML('beforeend', coinImg());
 }
 
 function enterGame() {
@@ -2667,7 +2745,13 @@ $('char-ok').addEventListener('click', () => {
     Sound.miss();
     return;
   }
-  const look = validLook({ ...charDraft, name });
+  if (!LB_NAME_RE.test(name.normalize('NFC'))) {
+    $('char-hint').textContent = "Le nom ne peut contenir que des lettres, des chiffres, des espaces et ' . _ -";
+    $('char-name').focus();
+    Sound.miss();
+    return;
+  }
+  const look = validLook({ ...charDraft, name: name.normalize('NFC') });
   if (charMode === 'create') {
     clearSave();
     progress = emptyProgress();
@@ -2693,18 +2777,38 @@ $('btn-leaderboard').addEventListener('click', () => openPanel('leaderboard'));
 //  - le jeu lit leaderboard.json directement sur GitHub.
 // ---------------------------------------------------------------------------
 const LEADERBOARD = { repo: 'socrux/jeux-p-che', branch: 'main', salt: 'lac-tranquille/score/v1' };
+// même règle que scripts/leaderboard.mjs (NAME_RE) : vérifiée avant l'envoi pour prévenir le joueur
+const LB_NAME_RE = /^[\p{L}\p{M}\p{N} '’._-]{1,16}$/u;
 const LB_FIELDS = ['v', 'version', 'name', 'earned', 'caught', 'casts', 'aboms', 'heaviestKg', 'heaviestFish', 'dex', 'days', 'boat', 'cthulhu', 'playTime'];
 const LB_CATS = [
   { id: 'earned',   name: 'Pièces gagnées',   val: (p) => p.earned,           fmt: (p) => `${fmtNum(p.earned)} ${coinImg()}` },
   { id: 'heaviest', name: 'Plus grosse prise', val: (p) => p.heaviest?.kg || 0, fmt: (p) => (p.heaviest?.kg ? `${fmtKg(p.heaviest.kg)} · ${escapeHtml(p.heaviest.fish)}` : '—') },
-  { id: 'dex',      name: 'Carnet',           val: (p) => p.dex,              fmt: (p) => `${p.dex} / ${dexTotal()}` },
+  { id: 'dex',      name: 'Carnet',           val: (p) => p.dex,              fmt: (p) => `${fmtNum(p.dex)} / ${dexTotal()}` },
   { id: 'days',     name: 'Jours au lac',     val: (p) => p.days,             fmt: (p) => `${fmtNum(p.days)} jour${p.days > 1 ? 's' : ''}` },
-  { id: 'boat',     name: 'Bateau',           val: (p) => p.boat,             fmt: (p) => `${BOATS[p.boat - 1]?.name || '?'} (niv. ${p.boat})` },
-  { id: 'cthulhu',  name: 'Grand Ancien',     val: (p) => p.cthulhu,          fmt: (p) => `${p.cthulhu} fois` },
+  { id: 'boat',     name: 'Bateau',           val: (p) => p.boat,             fmt: (p) => `${BOATS[p.boat - 1]?.name || '?'} (niv. ${fmtNum(p.boat)})` },
+  { id: 'cthulhu',  name: 'Grand Ancien',     val: (p) => p.cthulhu,          fmt: (p) => `${fmtNum(p.cthulhu)} fois` },
 ];
 let lbData = null;
 let lbCat = 'earned';
 let lbStatus = '';
+const LB_MAX_BYTES = 2 * 1024 * 1024;     // un classement de 500 joueurs pèse ~150 Ko
+
+// Le classement téléchargé est une donnée réseau non fiable : chaque joueur est reconstruit
+// champ par champ (textes coupés, nombres finis et bornés), le reste est ignoré.
+function validBoard(b) {
+  const n = (x, max) => vNum(x, max);
+  const str = (x, max) => (typeof x === 'string' ? x.slice(0, max) : '');
+  const board = vObj(b);
+  return {
+    updated: str(board.updated, 40) || null,
+    players: vArr(board.players).slice(0, 500).filter(isObj).map((p) => ({
+      login: str(p.login, 39), name: str(p.name, 16),
+      earned: n(p.earned, 1e12), caught: n(p.caught, 1e9), aboms: n(p.aboms, 1e9), dex: n(p.dex, 1000),
+      days: n(p.days, 1e7), boat: Math.round(n(p.boat, BOAT_MAX)), cthulhu: n(p.cthulhu, 1e7), playTime: n(p.playTime, 1e10),
+      heaviest: isObj(p.heaviest) ? { kg: n(p.heaviest.kg, 40000), fish: str(p.heaviest.fish, 40) } : null,
+    })),
+  };
+}
 
 // Hachage cyrb53 : identique à celui de scripts/leaderboard.mjs (signature du score)
 function cyrb53(str, seed = 0) {
@@ -2725,7 +2829,7 @@ function scorePayload() {
   const s = {
     v: 1,
     version: GAME_VERSION,
-    name: progress.look?.name || 'Anonyme',
+    name: (progress.look?.name || 'Anonyme').normalize('NFC'),
     earned: Math.round(st.earned),
     caught: st.caught,
     casts: st.casts,
@@ -2749,7 +2853,9 @@ async function loadLeaderboard() {
     const url = `https://raw.githubusercontent.com/${LEADERBOARD.repo}/${LEADERBOARD.branch}/leaderboard.json?t=${Date.now()}`;
     const res = await fetch(url, { cache: 'no-store' });
     if (!res.ok) throw new Error(res.status);
-    lbData = await res.json();
+    const text = await res.text();
+    if (text.length > LB_MAX_BYTES) throw new Error('classement trop volumineux');
+    lbData = validBoard(JSON.parse(text));
     lbStatus = '';
   } catch {
     lbStatus = "Impossible de charger le classement (pas de connexion, ou dépôt pas encore public).";
@@ -2762,7 +2868,7 @@ function renderLeaderboard() {
   const cat = LB_CATS.find((c) => c.id === lbCat);
   const me = progress.look?.name;
   const players = (lbData?.players || []).filter((p) => cat.val(p) > 0).sort((a, b) => cat.val(b) - cat.val(a)).slice(0, 50);
-  $('lb-list').innerHTML = lbStatus ? `<p class="lb-empty">${lbStatus}</p>`
+  $('lb-list').innerHTML = lbStatus ? `<p class="lb-empty">${escapeHtml(lbStatus)}</p>`
     : players.length ? players.map((p, i) => `
       <div class="lb-row ${inGame && p.name === me ? 'me' : ''} ${i < 3 ? `top${i + 1}` : ''}">
         <span class="lb-rank">${i + 1}</span>
@@ -2780,8 +2886,12 @@ function renderLeaderboard() {
 
 function submitScore() {
   if (!inGame || admin.on) return;
-  writeSave();
   const s = scorePayload();
+  if (!LB_NAME_RE.test(s.name)) {
+    $('lb-hint').textContent = "Votre nom contient des caractères refusés par le classement (autorisés : lettres, chiffres, espace, ' . _ -) : le score ne peut pas être envoyé.";
+    return;
+  }
+  writeSave();
   const body = [
     `Score de **${s.name}** envoyé depuis Lac Tranquille ${GAME_VERSION}.`,
     '',
@@ -2893,7 +3003,7 @@ function fishPage(f, abom, index) {
     <dl class="records">
       <dt>Plus grande taille</dt><dd>${known ? fmtCm(entry.maxSize) : unk}</dd>
       <dt>Plus lourd</dt><dd>${known ? fmtKg(entry.maxWeight) : unk}</dd>
-      <dt>Capturés</dt><dd>${known ? entry.count : unk}</dd>
+      <dt>Capturés</dt><dd>${known ? fmtNum(entry.count) : unk}</dd>
       ${isFish ? `<dt>Combativité</dt><dd>${known ? vigorDots(TIER_VIGOR[f.tier] * (abom ? ABOM_VIGOR : 1)) : unk}</dd>` : ''}
     </dl>
     <p class="desc">${known ? (abom ? f.abomDesc : f.desc) : '???? ???? ?? ??????? ???? ??? ????? ?? ???????.'}</p>`;
@@ -3395,7 +3505,7 @@ function renderSheetMain() {
   const rodChips = progress.rods.map((id) =>
     `<button class="btn ${id === r.id ? 'active' : ''}" data-equip-rod="${id}">${ROD_BY_ID[id].name}</button>`).join('');
   const baitChips = BAITS.filter((x) => x.pack === 0 || progress.baits[x.id] > 0).map((x) =>
-    `<button class="btn ${x.id === b.id ? 'active' : ''}" data-equip-bait="${x.id}">${x.name}${x.pack ? ` (${progress.baits[x.id]})` : ''}</button>`).join('');
+    `<button class="btn ${x.id === b.id ? 'active' : ''}" data-equip-bait="${x.id}">${x.name}${x.pack ? ` (${fmtNum(progress.baits[x.id] || 0)})` : ''}</button>`).join('');
 
   $('sheet-gear').innerHTML = `
     <div class="chips char-edit"><button class="btn" data-edit-char>Modifier mon personnage</button></div>
@@ -3408,7 +3518,7 @@ function renderSheetMain() {
     </div>
     <div class="slot">
       <div class="slot-top"><img src="${itemIcon('bait', b)}" alt="">
-        <div><div class="slot-label">Appât</div><div class="slot-name">${b.name}${b.pack ? ` — ${progress.baits[b.id] || 0} restant(s)` : ''}</div></div></div>
+        <div><div class="slot-label">Appât</div><div class="slot-name">${b.name}${b.pack ? ` — ${fmtNum(progress.baits[b.id] || 0)} restant(s)` : ''}</div></div></div>
       <div class="eff">${baitEffects(b)}</div>
       <div class="chips">${baitChips}</div>
     </div>
@@ -3775,9 +3885,16 @@ $('save-file').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   e.target.value = '';
   if (!file) return;
+  // une vraie sauvegarde pèse quelques Ko : un fichier énorme figerait l'onglet pendant la lecture
+  if (file.size > SAVE_FILE_MAX) {
+    pendingImport = null;
+    $('save-confirm').hidden = true;
+    saveMsg('Fichier trop volumineux pour être une sauvegarde de Lac Tranquille.');
+    return;
+  }
   try {
     const json = JSON.parse(await file.text());
-    const data = migrate(json?.game === 'lac-tranquille' ? json.save : json);
+    const data = validProgress(json?.game === 'lac-tranquille' ? json.save : json);
     if (!data || data.v !== 2) throw new Error('format');
     pendingImport = data;
     $('save-summary').textContent = `Sauvegarde trouvée : ${saveSummary(data)}. Elle remplacera la partie actuelle.`;
