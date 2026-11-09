@@ -14,7 +14,7 @@ const BOAT_Y = 222;          // haut de la coque
 const $ = (id) => document.getElementById(id);
 
 // Version du jeu : à mettre à jour à chaque pull request (MAJEUR.MINEUR.CORRECTIF)
-const GAME_VERSION = '1.0.0';
+const GAME_VERSION = '1.1.0';
 
 // ===========================================================================
 // Données
@@ -162,7 +162,14 @@ const RODS = [
   { id: 'carbone', name: 'Canne en carbone',        price: 600,  speed: 0.65, window: 0.18, vigor: 0.76, cthulhu: 2,   color: '#3a3a44', desc: "Légère comme une plume, sensible au moindre frisson." },
   { id: 'maitre',  name: 'Canne de maître',         price: 2000, speed: 0.5,  window: 0.25, vigor: 0.64, cthulhu: 3,   color: '#c03a3a', desc: "Fabriquée à la main par le vieil artisan du village." },
   { id: 'runique', name: 'Canne runique',           price: 6000, speed: 0.38, window: 0.35, vigor: 0.52, cthulhu: 6,   color: '#9a48d8', desc: "Gravée de symboles que personne ne sait lire. Elle vibre la nuit." },
+  { id: 'titane',  name: 'Canne télescopique en titane', price: 12000, speed: 0.34, window: 0.4,  vigor: 0.48, cthulhu: 7,  color: '#b8c4cc', desc: "Elle se déplie d'un geste. Ultra-légère, increvable." },
+  { id: 'abyssale', name: 'Canne abyssale',         price: 22000, speed: 0.3,  window: 0.45, vigor: 0.44, cthulhu: 8,  color: '#1e3a6a', desc: "Conçue pour pêcher par trois cents mètres de fond. Le lac n'est pas si profond… normalement." },
+  { id: 'capitaine', name: 'Canne du capitaine',    price: 38000, speed: 0.27, window: 0.5,  vigor: 0.4,  cthulhu: 10, color: '#c8962e', desc: "Manche en ivoire, anneaux en laiton. Une canne qui a vu tous les océans." },
+  { id: 'corail',  name: 'Canne en corail noir',    price: 60000, speed: 0.24, window: 0.56, vigor: 0.36, cthulhu: 12, color: '#3a1a2a', desc: "Taillée dans un corail qui ne pousse plus nulle part. Elle est tiède au toucher." },
+  { id: 'stellaire', name: 'Canne stellaire',       price: 90000, speed: 0.21, window: 0.62, vigor: 0.32, cthulhu: 15, color: '#e8e0ff', desc: "Son fil brille comme une étoile filante. Les poissons la suivent du regard." },
+  { id: 'rlyeh',   name: "Canne de R'lyeh",         price: 140000, speed: 0.18, window: 0.7, vigor: 0.28, cthulhu: 22, color: '#3fd08a', desc: "Elle n'a pas été fabriquée. Elle a été trouvée, plantée dans une ville engloutie." },
 ];
+RODS.forEach((r, i) => { r.tier = i + 1; });
 const ROD_BY_ID = Object.fromEntries(RODS.map((r) => [r.id, r]));
 
 // Vigueur de base selon la rareté (0 = calme, 1 = déchaîné). Les abominations sont plus vigoureuses.
@@ -250,7 +257,14 @@ const POTS = [
   { id: 'cerclee',  name: 'Grande caisse cerclée',  price: 1200, capacity: 10, speed: 1.3,  rare: 0.2, abom: 0,    color: '#7a8590', desc: "Renforcée de cerclages en fer. Elle peut rester des heures au fond." },
   { id: 'profonde', name: 'Caisse des profondeurs', price: 2200, capacity: 5,  speed: 1.1,  rare: 1.0, abom: 0.03, color: '#2a4a7a', desc: "Lestée pour descendre très bas. Elle remonte des crustacés rares… et parfois pire." },
   { id: 'maudite',  name: 'Caisse maudite',         price: 5000, capacity: 6,  speed: 1.2,  rare: 1.6, abom: 0.1,  color: '#5a2a6a', desc: "Couverte de symboles gravés au couteau. Ce qu'elle attire n'aurait jamais dû remonter." },
+  { id: 'acier',    name: 'Casier en acier',        price: 9000,  capacity: 12, speed: 1.45, rare: 0.5, abom: 0,    color: '#8a929c', desc: "Inoxydable, riveté, quasiment indestructible." },
+  { id: 'nasse',    name: 'Nasse des grands fonds', price: 15000, capacity: 10, speed: 1.4,  rare: 1.3, abom: 0.04, color: '#4a6a5a', desc: "Un grand filet tendu sur une armature : il descend là où la lumière n'arrive plus." },
+  { id: 'frigo',    name: 'Caisse frigorifique',    price: 25000, capacity: 16, speed: 1.6,  rare: 0.8, abom: 0,    color: '#e8eef2', desc: "Isolée et réfrigérée : les prises restent fraîches, et nombreuses." },
+  { id: 'royale',   name: 'Cage à homards royale',  price: 40000, capacity: 12, speed: 1.6,  rare: 2.0, abom: 0.05, color: '#8a2a2a', desc: "Cerclée d'or. Les crustacés les plus nobles s'y sentent chez eux." },
+  { id: 'auto',     name: 'Caisse automatique',     price: 65000, capacity: 20, speed: 1.9,  rare: 1.4, abom: 0.02, color: '#3a4250', desc: "Moteur, appât automatique et voyant lumineux. La technologie au service du crabe." },
+  { id: 'reliquaire', name: 'Reliquaire des abysses', price: 100000, capacity: 14, speed: 1.8, rare: 2.6, abom: 0.15, color: '#2a1a3a', desc: "Un coffre ancien sorti d'une épave. Il s'ouvre tout seul quand il est plein." },
 ];
+POTS.forEach((p, i) => { p.tier = i + 1; });
 const POT_BY_ID = Object.fromEntries(POTS.map((p) => [p.id, p]));
 const POT_SLOTS = [{ x: 118, y: 152 }, { x: 338, y: 140 }];   // 2 caisses à l'eau au maximum
 const POT_BASE_INTERVAL = 45;                                   // secondes par prise, en moyenne
@@ -272,6 +286,7 @@ function fmtPct(x) {
   return `${p.toFixed(digits).replace(/\.?0+$/, '').replace('.', ',')} %`;
 }
 const fishName = (f, abom) => (abom ? f.abomName : f.name);
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 const dexKey = (f, abom) => (abom ? `${f.id}:abom` : f.id);
 const coinImg = () => `<img class="coin" src="${ICONS.coin}" alt="pièces">`;
 
@@ -298,6 +313,8 @@ function emptyProgress() {
     potsOwned: {},          // { [type]: nombre possédé }
     pots: [null, null],     // caisses à l'eau : { type, bait, placedAt, nextAt, contents: [] }
     achievements: {},       // { [id]: date de déblocage }
+    look: null,             // apparence du personnage (voir character.js), nom compris
+    boat: { level: 1, parts: [] },   // niveau du bateau et pièces réunies pour les niveaux suivants
     items: [],              // inventaire : { uid, id }
     equip: {},              // { [emplacement]: uid }
     itemSeq: 0,
@@ -339,6 +356,12 @@ function migrate(s) {
     const it = out.items.find((x) => x.uid === s.equip?.[sl.id]);
     if (it && ITEM_BY_ID[it.id].slot === sl.id) out.equip[sl.id] = it.uid;
   }
+  const allParts = BOATS.flatMap((b) => [...(b.parts || []), ...(b.special ? [b.special] : [])].map((p) => p.id));
+  out.boat = {
+    level: clamp(Math.floor(Number(s.boat?.level) || 1), 1, BOAT_MAX),
+    parts: (Array.isArray(s.boat?.parts) ? s.boat.parts : []).filter((id) => allParts.includes(id)),
+  };
+  out.look = s.look ? validLook(s.look) : null;   // ancienne sauvegarde : le joueur créera son personnage
   out.clock = Number.isFinite(s.clock) ? s.clock : CLOCK_START;
   out.weather = s.weather && WEATHER_BY_ID[s.weather.id] ? s.weather : null;
   return out;
@@ -360,10 +383,36 @@ function clearSave() {
 let progress = emptyProgress();
 let inGame = false;
 
-// Mode admin (outils de test) : réglage local, hors sauvegarde de partie
-const ADMIN_KEY = 'lacTranquille.admin';
+// Mode admin (outils de test) : toujours désactivé au lancement. L'ancien réglage enregistré
+// dans le navigateur est effacé (il ne doit plus pouvoir être réactivé par le joueur).
 const admin = { on: false, forced: 'random', corruption: null };
-try { admin.on = !!JSON.parse(localStorage.getItem(ADMIN_KEY))?.on; } catch { /* stockage indisponible */ }
+try { localStorage.removeItem('lacTranquille.admin'); } catch { /* stockage indisponible */ }
+
+// --- bateau
+const boatLevel = () => progress.boat?.level || 1;
+const boatDef = (level = boatLevel()) => BOATS[level - 1];
+const nextBoat = () => BOATS[boatLevel()] || null;            // null : bateau au maximum
+const hasPart = (id) => progress.boat.parts.includes(id);
+const tierUnlocked = (tier) => tier <= boatMaxTier(boatLevel());
+// toutes les pièces du prochain bateau sont-elles réunies ?
+function boatReady() {
+  const nb = nextBoat();
+  return !!nb && nb.parts.every((p) => hasPart(p.id)) && hasPart(nb.special.id);
+}
+// Chance de trouver la pièce spéciale du prochain bateau (une seule fois)
+function specialPartChance(tier, source) {
+  const nb = nextBoat();
+  if (!nb || hasPart(nb.special.id)) return 0;
+  const base = source === 'fish' ? 0.02 + 0.008 * tier : 0.01 + 0.005 * tier;
+  return clamp(base * (1 + mods().luck * 0.5), 0, 0.5);
+}
+// Tire la pièce spéciale ; renvoie sa définition si elle vient d'être trouvée
+function rollSpecialPart(tier, source) {
+  if (Math.random() >= specialPartChance(tier, source)) return null;
+  const sp = nextBoat().special;
+  progress.boat.parts.push(sp.id);
+  return sp;
+}
 
 const rod = () => ROD_BY_ID[progress.rod];
 const bait = () => BAIT_BY_ID[progress.bait];
@@ -469,7 +518,7 @@ function rodTip() {
   if (game.state === 'bite') bend = 8 + Math.round(Math.sin(time * 30) * 2);
   if (game.state === 'reeling') bend = (holding ? 11 : 7) + Math.round(Math.sin(time * (10 + game.mg.vigor * 25)) * (1 + game.mg.vigor * 2));
   if (game.state === 'casting') bend = -14 * (1 - game.t / CAST_TIME);
-  return { x: 306, y: Math.round(150 + boatBob() + bend) };
+  return { x: BOAT_X + 66 + boatShift(), y: Math.round(150 + boatBob() + bend) };
 }
 
 // ===========================================================================
@@ -506,6 +555,8 @@ function cast() {
   game.float.from = rodTip();
   game.float.to = { x: Math.round(rand(80, 400)), y: Math.round(rand(HORIZON + 14, 196)) };
   if (Math.abs(game.float.to.x - BOAT_X) < 70 && game.float.to.y > 182) game.float.to.y = 172;
+  // les grands bateaux ont une cabine à gauche du pêcheur : on ne lance pas derrière
+  if (boatLevel() >= 3 && game.float.to.x > BOAT_X - 110 && game.float.to.x < BOAT_X + 10 && game.float.to.y > 160) game.float.to.y = 158;
   game.fish = pickFish();
   game.baitRanOut = null;
   consumeBait();
@@ -576,7 +627,8 @@ function strike() {
   const loot = m?.chest?.got ? rollChestLoot() : null;
   const flags = registerCatch(f, abom, c);
   const drop = Math.random() < itemDropChance(f.tier, abom, 'fish') ? addItem(rollItem(f.tier, abom)) : null;
-  game.catch = { f, abom, ...c, perfect, bonus, loot, drop, goldBonus: M.gold, ...flags };
+  const part = rollSpecialPart(f.tier, 'fish');
+  game.catch = { f, abom, ...c, perfect, bonus, loot, drop, part, goldBonus: M.gold, ...flags };
   if (f.unique) progress.stats.cthulhu = (progress.stats.cthulhu || 0) + 1;
   if (loot) {
     progress.baits[loot.bait.id] = (progress.baits[loot.bait.id] || 0) + loot.qty;
@@ -600,6 +652,15 @@ function strike() {
   if (drop) setTimeout(() => Sound.itemFound(itemDef(drop.inst).tier), 500);
   checkAchievements({ type: 'catch', f, abom, perfect, ...flags });
   if (drop) checkAchievements({ type: 'item', item: itemDef(drop.inst) });
+  if (part) onSpecialPartFound(part);
+}
+
+function onSpecialPartFound(part) {
+  setTimeout(() => Sound.chestGet(), 700);
+  pushToast({ icon: ICONS.boat, label: 'Pièce spéciale trouvée !', title: part.name,
+    sub: boatReady() ? `Toutes les pièces du ${nextBoat().name} sont réunies : direction le chantier !` : `Pour le ${nextBoat().name}`,
+    sound: () => Sound.achievement() });
+  checkAchievements({ type: 'part' });
 }
 
 // ---------------------------------------------------------------------------
@@ -742,23 +803,27 @@ function deployPot(slot, typeId, baitId) {
 }
 
 let lastPot = null;   // dernière caisse relevée (pour le récapitulatif)
+let lastPotPart = null;
 
 function collectPot(slot) {
   tickPots();
   const pot = progress.pots[slot];
   if (!pot) return;
   progress.pots[slot] = null;
+  lastPotPart = null;
   const gold = 1 + mods().gold;
   const drops = [];
   const results = pot.contents.map((it) => {
     const cr = CRUST_BY_ID[it.id];
     const c = { ...it, money: Math.round(it.money * gold) };
     if (Math.random() < itemDropChance(cr.tier, it.abom, 'pot')) drops.push(addItem(rollItem(cr.tier, it.abom)));
+    const part = rollSpecialPart(cr.tier, 'pot');
+    if (part) { lastPotPart = part; onSpecialPartFound(part); }
     return { cr, ...c, ...registerCatch(cr, it.abom, c) };
   });
   progress.stats.crusts = (progress.stats.crusts || 0) + results.length;
   progress.stats.potsCollected = (progress.stats.potsCollected || 0) + 1;
-  lastPot = { slot, type: pot.type, bait: pot.bait, results, drops };
+  lastPot = { slot, type: pot.type, bait: pot.bait, results, drops, part: lastPotPart };
   addRipple(POT_SLOTS[slot].x, POT_SLOTS[slot].y, 1);
   if (results.length) Sound.catchFish(results.some((r) => r.abom)); else Sound.miss();
   if (drops.length) setTimeout(() => Sound.itemFound(Math.max(...drops.map((d) => itemDef(d.inst).tier))), 500);
@@ -1290,6 +1355,26 @@ function update(dt) {
       if (Math.random() < dt * 14) addRipple(rand(120, 360), rand(140, 175), rand(1.5, 3.5));
       if (game.t >= CTH_RISE_TIME) startReel(0);
       break;
+    case 'boatSwap': {
+      // sillage derrière le bateau en mouvement
+      const v = boatSwapView();
+      if (v && Math.random() < dt * 18) addRipple(BOAT_X - 60 + v.shift + boatArt(v.level).stern + rand(-6, 6), BOAT_Y + 14, rand(1, 2));
+      if (game.t >= SWAP_OUT && !game.swap.arrived) {
+        game.swap.arrived = true;
+        say(`Voici votre ${boatDef().name} !`);
+        Sound.splash();
+      }
+      if (game.t >= SWAP_OUT + SWAP_IN + 0.4) {
+        game.swap = null;
+        setState('idle');
+        say('Cliquez pour lancer la ligne');
+        Sound.achievement();
+        pushToast({ icon: ICONS.boat, label: `Bateau niveau ${boatLevel()}`, title: boatDef().name,
+          sub: `Cannes et caisses jusqu'au niveau ${boatMaxTier(boatLevel())} débloquées`, sound: () => Sound.chestGet() });
+        checkAchievements({ type: 'boat' });
+      }
+      break;
+    }
     case 'phaseBreak':
       if (Math.random() < dt * 8) addRipple(rand(150, 330), rand(140, 175), 2.5);
       if (game.t >= 1.8) startReel(game.nextPhase);
@@ -1320,79 +1405,190 @@ let stars = [];
 let crateSprites = {};
 let clouds = [];
 
-const FISHERMAN = [
-  '......oooooo......',
-  '.....ohhhhhHo.....',
-  '.....ohhhhhHo.....',
-  '.....obbbbbbo.....',
-  '..oooohhhhhhoooo..',
-  '..ohhhhhhhhhhhhho.',
-  '...ooooooooooooo..',
-  '.....oaassseso....',
-  '.....oasssssso....',
-  '.....oassssssSo...',
-  '.....oSsssssso....',
-  '......oSSSSSo.....',
-  '.....orrrrrrro....',
-  '....orrrrrrrrrooo.',
-  '....orrrRrrrrrrsso',
-  '....orrrRrrrooooo.',
-  '....orrrrrrro.....',
-  '....oRrrrrrRo.....',
-  '....oppppppppppo..',
-  '....opppppppppPo..',
-  '.....ooooooooooo..',
-];
-const FISHERMAN_PAL = {
-  o: '#1e140c', h: '#e2bd55', H: '#b08a2e', b: '#7a3b2a', a: '#6a3e1e',
-  s: '#f2c497', S: '#c98f62', e: '#1e140c', r: '#c64a35', R: '#8e2f22', p: '#3e5a9a', P: '#2c3f70',
-};
 const HAND = { x: 64, y: 20 };      // main du pêcheur dans le sprite de la barque
 
-const LANTERN = { x: 108, y: 7 };    // lanterne de la barque (repère du sprite)
-
-// La veste et le pantalon équipés changent la tenue du pêcheur
-function fishermanPalette() {
-  const pal = { ...FISHERMAN_PAL };
-  const j = equippedItem('jacket');
-  const p = equippedItem('pants');
-  if (j) { pal.r = j.color; pal.R = shadeHex(j.color, 0.7); }
-  if (p) { pal.p = p.color; pal.P = shadeHex(p.color, 0.7); }
-  return pal;
-}
-function refreshBoat() { boatSprite = buildBoat(fishermanPalette()); }
-
-function buildBoat(pal = FISHERMAN_PAL) {
-  const cv = makeCanvas(120, 48);
-  const c = cv.getContext('2d');
-  // lanterne sur son mât, à l'avant
-  pxRect(c, LANTERN.x, LANTERN.y + 4, 1, 14, '#6e4422');
-  pxRect(c, LANTERN.x - 3, LANTERN.y - 1, 7, 1, '#3a3a40');
-  pxRect(c, LANTERN.x - 2, LANTERN.y, 5, 6, '#4a4a52');
-  pxRect(c, LANTERN.x - 1, LANTERN.y + 1, 3, 4, '#ffd27a');
-  pxRect(c, LANTERN.x, LANTERN.y + 2, 1, 2, '#fff3b8');
-  pxRect(c, LANTERN.x - 2, LANTERN.y + 6, 5, 1, '#3a3a40');
-  // seau avec une queue de poisson
-  pxRect(c, 80, 15, 9, 10, '#8a8f96');
-  pxRect(c, 80, 15, 9, 2, '#b8bec6');
-  pxRect(c, 83, 11, 3, 4, '#aeb9bd');
-  pxRect(c, 82, 10, 5, 2, '#cf5f3a');
-  // boîte à pêche
-  pxRect(c, 20, 18, 12, 7, '#b0402e');
-  pxRect(c, 20, 18, 12, 2, '#d8604a');
-  pxRect(c, 24, 15, 4, 3, '#4a4f55');
-  // pêcheur
-  c.drawImage(sprite(FISHERMAN, pal), 46, 6);
-  // coque
-  for (let y = 0; y < 15; y++) {
-    const half = 54 - Math.max(0, y - 6) * 2;
-    let col = Math.floor(y / 4) % 2 ? '#87532c' : '#9a6236';
-    if (y === 0) col = '#c88c52';
-    if (y === 1) col = '#a86c3a';
-    if (y > 1 && y % 4 === 0) col = '#5e3a1e';
-    pxRect(c, 60 - half, 24 + y, half * 2, 1, col);
+// Apparence affichée : celle du personnage, avec la veste et le pantalon équipés par-dessus
+// (sauf si le joueur a choisi de les masquer)
+function currentLook(base = progress.look) {
+  const look = validLook(base);
+  if (look.gear === 'on') {
+    const j = equippedItem('jacket');
+    const p = equippedItem('pants');
+    if (j) look.shirt = j.color;
+    if (p) look.pants = p.color;
   }
-  for (const x of [22, 60, 98]) pxRect(c, x, 26, 1, 10, '#6e4422');     // membrures
+  return look;
+}
+function refreshBoat() { boatSprite = buildBoat(currentLook()); }
+
+// Sprite du bateau : grand canevas dont l'« origine » (px, py) correspond au coin de l'ancienne barque
+// 120×48. Le pêcheur, sa main et la canne restent ainsi au même endroit quel que soit le bateau.
+const BOAT_SPR = { w: 220, h: 98, px: 50, py: 48 };
+// Par niveau : lanterne (repère d'origine), demi-largeur de l'ombre dans l'eau, poupe (sillage)
+const BOAT_ART = [
+  { lantern: { x: 108, y: 7 },   shadow: 58,  stern: 4 },
+  { lantern: { x: 112, y: 3 },   shadow: 68,  stern: -14 },
+  { lantern: { x: 1, y: -36 },   shadow: 82,  stern: -24 },
+  { lantern: { x: 4, y: -46 },   shadow: 96,  stern: -36 },
+  { lantern: { x: -16, y: -46 }, shadow: 106, stern: -44 },
+];
+const boatArt = (level = boatLevel()) => BOAT_ART[level - 1];
+
+// Coque : rangées de pixels, poupe à gauche (x0), étrave à droite (x1) qui remonte en pointe
+function paintHull(c, x0, x1, depth, bow, colorAt, sternCut = 0) {
+  for (let y = 0; y < depth; y++) {
+    const k = y / (depth - 1);
+    const left = x0 + Math.round(Math.max(0, y - depth + sternCut) * 1.5);
+    const right = x1 - Math.round(Math.pow(k, 0.75) * bow);
+    pxRect(c, left, 24 + y, right - left, 1, colorAt(y));
+  }
+}
+function lanternOn(c, x, y, pole = 14, poleCol = '#6e4422') {
+  pxRect(c, x, y + 4, 1, pole, poleCol);
+  pxRect(c, x - 3, y - 1, 7, 1, '#3a3a40');
+  pxRect(c, x - 2, y, 5, 6, '#4a4a52');
+  pxRect(c, x - 1, y + 1, 3, 4, '#ffd27a');
+  pxRect(c, x, y + 2, 1, 2, '#fff3b8');
+  pxRect(c, x - 2, y + 6, 5, 1, '#3a3a40');
+}
+function bucket(c, x) {
+  pxRect(c, x, 15, 9, 10, '#8a8f96');
+  pxRect(c, x, 15, 9, 2, '#b8bec6');
+  pxRect(c, x + 3, 11, 3, 4, '#aeb9bd');
+  pxRect(c, x + 2, 10, 5, 2, '#cf5f3a');
+}
+function window4(c, x, y, w, h, glass = '#a8e0f8') {
+  pxRect(c, x, y, w, h, glass);
+  pxRect(c, x, y, w, 1, shadeHex(glass, 1.35));
+  pxRect(c, x + 1, y + 1, 2, 1, '#ffffff');
+}
+function lifebuoy(c, x, y) {
+  pxDisk(c, x, y, 4, '#f08a2a');
+  for (const [dx, dy] of [[-3, -2], [2, -3], [3, 2], [-2, 3]]) pxRect(c, x + dx, y + dy, 1, 1, '#f4f0e6');
+  pxDisk(c, x, y, 1, '#1e140c');
+}
+
+function buildBoat(look = DEFAULT_LOOK, level = boatLevel()) {
+  const cv = makeCanvas(BOAT_SPR.w, BOAT_SPR.h);
+  const c = cv.getContext('2d');
+  c.translate(BOAT_SPR.px, BOAT_SPR.py);
+  const fisher = buildFisherSprite(look);
+  switch (level) {
+    case 1: default: {                                        // --- barque en bois
+      lanternOn(c, 108, 7);
+      bucket(c, 80);
+      pxRect(c, 20, 18, 12, 7, '#b0402e');
+      pxRect(c, 20, 18, 12, 2, '#d8604a');
+      pxRect(c, 24, 15, 4, 3, '#4a4f55');
+      c.drawImage(fisher, 46, 6);
+      for (let y = 0; y < 15; y++) {
+        const half = 54 - Math.max(0, y - 6) * 2;
+        let col = Math.floor(y / 4) % 2 ? '#87532c' : '#9a6236';
+        if (y === 0) col = '#c88c52';
+        if (y === 1) col = '#a86c3a';
+        if (y > 1 && y % 4 === 0) col = '#5e3a1e';
+        pxRect(c, 60 - half, 24 + y, half * 2, 1, col);
+      }
+      for (const x of [22, 60, 98]) pxRect(c, x, 26, 1, 10, '#6e4422');
+      break;
+    }
+    case 2: {                                                  // --- canot à moteur
+      lanternOn(c, 112, 3, 20, '#9aa3ad');
+      pxRect(c, -14, 8, 10, 3, '#c64a35');                      // moteur hors-bord
+      pxRect(c, -14, 11, 10, 13, '#3a3a44');
+      pxRect(c, -13, 12, 2, 10, '#5a5a66');
+      pxRect(c, -11, 24, 3, 13, '#5a5a62');
+      pxRect(c, -14, 36, 9, 2, '#9aa3ad');
+      bucket(c, 96);
+      pxRect(c, 18, 16, 14, 8, '#3a72c8');                     // siège
+      pxRect(c, 18, 16, 14, 2, '#6a9ae0');
+      c.drawImage(fisher, 46, 6);
+      pxRect(c, 74, 9, 2, 15, '#e8eef2');                       // pare-brise
+      window4(c, 76, 11, 9, 13);
+      pxRect(c, 76, 9, 10, 2, '#e8eef2');
+      paintHull(c, -8, 126, 16, 18, (y) => (y === 0 ? '#c8ccd2' : y < 6 ? '#f0ece0' : y < 8 ? '#3a72c8' : y < 15 ? '#2a4a8a' : '#1e3060'), 4);
+      for (const x of [10, 50, 90]) pxRect(c, x, 27, 6, 1, '#d8dce0');
+      break;
+    }
+    case 3: {                                                  // --- bateau de pêche
+      pxRect(c, 0, -34, 2, 16, '#5a5a62');                     // mât
+      lanternOn(c, 1, -36, 0);
+      pxRect(c, -18, -18, 58, 4, '#c64a35');                   // toit
+      pxRect(c, -18, -18, 58, 1, '#e06a55');
+      pxRect(c, -14, -14, 50, 38, '#f0ece0');                  // timonerie
+      pxRect(c, 30, -14, 6, 38, '#d0ccc0');
+      window4(c, -9, -9, 12, 8);
+      window4(c, 9, -9, 12, 8);
+      pxRect(c, 24, 0, 6, 24, '#8a5a32');                       // porte
+      pxRect(c, 28, 10, 1, 2, '#f5d04a');
+      lifebuoy(c, 4, 10);
+      bucket(c, 80);
+      pxRect(c, 100, 12, 12, 12, '#5a5a62');                    // treuil
+      pxRect(c, 101, 15, 10, 6, '#8a929c');
+      pxRect(c, 101, 17, 10, 1, '#c8a060');
+      c.drawImage(fisher, 46, 6);
+      paintHull(c, -24, 138, 18, 22, (y) => (y === 0 ? '#2a2a30' : y < 7 ? '#f0ece0' : y < 9 ? '#c64a35' : y < 16 ? '#a8382c' : '#3a1a1a'), 5);
+      for (const x of [40, 64, 88]) pxDisk(c, x, 29, 2, '#5a8ab0');      // hublots
+      break;
+    }
+    case 4: {                                                  // --- chalutier
+      pxRect(c, 4, -44, 2, 12, '#5a5a62');                      // mât et antennes
+      pxRect(c, -2, -40, 14, 1, '#5a5a62');
+      lanternOn(c, 4, -46, 0);
+      pxRect(c, -22, -34, 52, 4, '#2a3a5a');                    // passerelle
+      pxRect(c, -18, -30, 44, 20, '#e8eef2');
+      window4(c, -14, -26, 36, 7, '#5ab8f0');
+      for (const x of [-2, 10]) pxRect(c, x, -26, 1, 7, '#e8eef2');
+      pxRect(c, 22, -34, 6, 3, '#ffe9a0');                      // projecteurs
+      pxRect(c, -20, -34, 6, 3, '#ffe9a0');
+      pxRect(c, -26, -10, 62, 34, '#dfe6ec');                    // cabine basse
+      pxRect(c, 30, -10, 6, 34, '#c4ccd4');
+      for (const x of [-18, -6, 6, 18]) pxDisk(c, x, -2, 3, '#5ab8f0');
+      lifebuoy(c, 26, 10);
+      pxRect(c, 76, 13, 18, 11, '#3a72c8');                     // caisses de poisson
+      pxRect(c, 76, 13, 18, 2, '#6a9ae0');
+      pxRect(c, 104, 4, 8, 20, '#e0a020');                       // grue
+      c.fillStyle = '#e0a020';
+      pxLine(c, 108, 6, 136, -22, '#e0a020');
+      pxLine(c, 109, 6, 137, -22, '#e0a020');
+      pxLine(c, 110, 7, 138, -21, '#b07a10');
+      pxLine(c, 137, -21, 137, 14, '#1e140c');                   // câble
+      pxRect(c, 135, 14, 4, 3, '#8a929c');
+      c.drawImage(fisher, 46, 6);
+      paintHull(c, -36, 152, 21, 26, (y) => (y < 3 ? '#e8eef2' : y < 11 ? '#2a3a5a' : y < 12 ? '#e8eef2' : y < 18 ? '#1e2a44' : '#7a2a2a'), 6);
+      for (const x of [-20, 10, 40, 70, 100]) pxRect(c, x, 31, 8, 1, '#3e5070');
+      break;
+    }
+    case 5: {                                                  // --- navire Abysse-X
+      pxRect(c, -16, -44, 1, 22, '#9aa3ad');                    // antenne
+      lanternOn(c, -16, -46, 0, '#9aa3ad');
+      pxRect(c, -6, -32, 2, 6, '#9aa3ad');                      // radar
+      pxEllipse(c, -5, -33, 9, 2, '#d8e0e8');
+      pxDisk(c, 26, -27, 6, '#e8eef2');                         // dôme satellite
+      pxRect(c, 20, -27, 13, 1, '#b8c0c8');
+      for (let y = -22; y < 24; y++) {                          // cabine profilée
+        const right = 34 + Math.round((y + 22) * 0.5);
+        const left = -30 + Math.max(0, Math.round((-12 - y) * 0.8));
+        pxRect(c, left, y, right - left, 1, '#2a2e38');
+      }
+      for (let y = -18; y < -2; y++) {                          // grande vitre
+        const right = 30 + Math.round((y + 22) * 0.5);
+        pxRect(c, -18 + Math.max(0, Math.round((-12 - y) * 0.8)), y, right + 18 - Math.max(0, Math.round((-12 - y) * 0.8)), 1, y < -10 ? '#40e0f0' : '#1a8aa0');
+      }
+      pxRect(c, -26, 2, 64, 1, '#40e0f0');                      // liseré néon
+      pxRect(c, -20, 8, 30, 10, '#1e2228');
+      for (const x of [-16, -8, 0]) pxRect(c, x, 11, 4, 4, '#40e0f0');   // écrans du labo
+      pxRect(c, 108, 8, 22, 16, '#3a4250');                      // module sonar
+      pxDisk(c, 119, 15, 4, '#40e0f0');
+      pxDisk(c, 119, 15, 2, '#c8fbff');
+      pxRect(c, 78, 14, 16, 10, '#3a4250');
+      pxRect(c, 78, 14, 16, 2, '#40e0f0');
+      c.drawImage(fisher, 46, 6);
+      paintHull(c, -44, 164, 21, 34, (y) => (y === 0 ? '#40e0f0' : y < 10 ? '#22262e' : y < 11 ? '#40e0f0' : y < 19 ? '#16181e' : '#0a2a30'), 6);
+      for (const x of [0, 40, 80, 120]) pxRect(c, x, 30, 14, 1, '#3a4250');
+      break;
+    }
+  }
   pixelize(cv, '#1e140c');
   return cv;
 }
@@ -1817,7 +2013,7 @@ function drawRipples() {
   ctx.globalAlpha = 1;
 }
 
-const lineVisible = () => inGame && game.state !== 'idle' && game.state !== 'caught';
+const lineVisible = () => inGame && !['idle', 'caught', 'boatSwap'].includes(game.state);
 
 function floatSink() {
   switch (game.state) {
@@ -1866,18 +2062,36 @@ function drawFloatAndLine() {
   }
 }
 
+// Animation de changement de bateau : l'ancien part à droite, le nouveau arrive par la gauche
+const SWAP_OUT = 2.4, SWAP_IN = 3.0;
+function boatSwapView() {
+  if (game.state !== 'boatSwap' || !game.swap) return null;
+  const t = game.t;
+  if (t < SWAP_OUT) {
+    const k = t / SWAP_OUT;
+    return { sprite: game.swap.old, level: game.swap.oldLevel, shift: Math.round(k * k * 420) };
+  }
+  const k = Math.min(1, (t - SWAP_OUT) / SWAP_IN);
+  return { sprite: boatSprite, level: boatLevel(), shift: Math.round(-460 * (1 - k) ** 3) };
+}
+const boatShift = () => boatSwapView()?.shift || 0;
+
 function drawBoat() {
+  const view = boatSwapView();
+  const spr = view?.sprite || boatSprite;
+  const art = boatArt(view?.level || boatLevel());
+  const shift = view?.shift || 0;
   const bob = boatBob();
   ctx.globalAlpha = 0.35;
-  pxEllipse(ctx, BOAT_X, BOAT_Y + 16, 58, 3, '#0e2a50');
+  pxEllipse(ctx, BOAT_X + shift, BOAT_Y + 16 + (art.shadow > 60 ? 3 : 0), art.shadow, 3, '#0e2a50');
   ctx.globalAlpha = 1;
-  const ox = BOAT_X - 60;
+  const ox = BOAT_X - 60 + shift;
   const oy = BOAT_Y - 24 + bob;
-  ctx.drawImage(boatSprite, ox, oy);
-  shadeLayer(boatSprite, ox, oy, wv.dark * 0.35 + wv.storm * 0.15);
+  ctx.drawImage(spr, ox - BOAT_SPR.px, oy - BOAT_SPR.py);
+  shadeLayer(spr, ox - BOAT_SPR.px, oy - BOAT_SPR.py, wv.dark * 0.35 + wv.storm * 0.15);
   // la lanterne s'allume le soir
   if (wv.dark > 0.05) {
-    const lx = ox + LANTERN.x, ly = oy + LANTERN.y + 3;
+    const lx = ox + art.lantern.x, ly = oy + art.lantern.y + 3;
     const flick = 0.85 + Math.sin(time * 9) * 0.08 + Math.sin(time * 23) * 0.05;
     ctx.globalAlpha = wv.dark * 0.45 * flick;
     ctx.drawImage(lanternGlow, lx - 20, ly - 20);
@@ -2237,6 +2451,8 @@ function showCatchCard() {
   }
   $('cc-item').hidden = !r.drop;
   if (r.drop) $('cc-item').innerHTML = dropHtml(r.drop);
+  $('cc-part').hidden = !r.part;
+  if (r.part) $('cc-part').innerHTML = partHtml(r.part);
   const badges = [];
   if (r.newSpecies) badges.push('Nouvelle entrée dans le carnet !');
   if (r.sizeRecord) badges.push('Record de taille !');
@@ -2275,6 +2491,7 @@ function showPerfect() {
 // ===========================================================================
 function updateHud() {
   $('hud-admin').hidden = !admin.on;
+  $('hud-name').textContent = progress.look?.name || '';
   $('hud-money').textContent = fmtNum(progress.money);
   $('hud-count').textContent = fmtNum(progress.stats.caught);
   const b = bait();
@@ -2303,6 +2520,8 @@ function updateWorldHud(force = false) {
 // Couleur de texte lisible pour une rareté (sur fond sombre)
 const rarText = (tier) => shadeHex(RARITIES[tier].color, 1.35);
 
+const partHtml = (p) => `<img src="${ICONS.boat}" alt=""> Pièce spéciale : <b style="color:#ffd84a">${p.name}</b>`;
+
 function dropHtml(d) {
   const it = itemDef(d.inst);
   return `<img src="${equipIcon(it)}" alt=""> Objet trouvé : <b style="color:${rarText(it.tier)}">${it.name}</b>` +
@@ -2317,7 +2536,7 @@ function refreshMenu() {
   $('btn-new').textContent = 'Nouvelle partie';
   $('btn-continue').disabled = !save;
   $('save-info').innerHTML = save
-    ? `Partie en cours : jour ${dayOf(save.clock)} · ${save.stats.caught} poisson${save.stats.caught > 1 ? 's' : ''} · ${fmtNum(save.money)} ${coinImg()}`
+    ? `Partie en cours${save.look?.name ? ` de ${escapeHtml(save.look.name)}` : ''} : jour ${dayOf(save.clock)} · ${save.stats.caught} poisson${save.stats.caught > 1 ? 's' : ''} · ${fmtNum(save.money)} ${coinImg()}`
     : '';
 }
 
@@ -2355,7 +2574,9 @@ function showMenu() {
 $('btn-continue').addEventListener('click', () => {
   Sound.click();
   progress = loadSave() || emptyProgress();
-  enterGame();
+  // ancienne sauvegarde sans personnage : on le crée d'abord (la progression est conservée)
+  if (!progress.look?.name) openCharEditor('complete');
+  else enterGame();
 });
 
 $('btn-new').addEventListener('click', () => {
@@ -2366,13 +2587,228 @@ $('btn-new').addEventListener('click', () => {
     $('save-info').textContent = 'La partie en cours sera effacée.';
     return;
   }
-  clearSave();
-  progress = emptyProgress();
+  openCharEditor('create');
+});
+
+// ---------------------------------------------------------------------------
+// Éditeur de personnage
+// mode 'create' : nouvelle partie · 'complete' : ancienne sauvegarde sans personnage
+// mode 'edit' : depuis le profil (le nom ne peut plus être changé)
+// ---------------------------------------------------------------------------
+let charMode = 'create';
+let charDraft = null;
+
+function openCharEditor(mode) {
+  charMode = mode;
+  charDraft = mode === 'create' ? { ...DEFAULT_LOOK } : validLook(progress.look);
+  $('char-name').value = charDraft.name;
+  $('char-name').disabled = mode === 'edit';
+  $('char-title').textContent = mode === 'edit' ? 'Modifier mon personnage' : 'Nouveau personnage';
+  $('char-ok').textContent = mode === 'edit' ? 'Enregistrer' : mode === 'complete' ? 'Reprendre la partie' : 'Commencer la partie';
+  $('char-hint').textContent = mode === 'edit' ? 'Le nom ne peut pas être modifié.'
+    : mode === 'complete' ? 'Votre partie est conservée : choisissez simplement votre nom et votre apparence.' : '';
+  openPanel('char');
+  if (mode !== 'edit') setTimeout(() => $('char-name').focus(), 50);
+}
+
+function renderCharEditor() {
+  $('char-opts').innerHTML = LOOK_OPTIONS.map((o) => {
+    const v = charDraft[o.key];
+    const body = o.colors
+      ? `<div class="swatches">${o.colors.map((col) => `<button class="swatch ${col === v ? 'active' : ''}" style="background:${col}" data-look="${o.key}" data-val="${col}" title="${col}"></button>`).join('')}</div>`
+      : `<div class="chips">${o.choices.map(([val, lab]) => `<button class="btn ${val === v ? 'active' : ''}" data-look="${o.key}" data-val="${val}">${lab}</button>`).join('')}</div>`;
+    return `<div class="char-row"><div class="char-label">${o.label}</div>${body}</div>`;
+  }).join('');
+  drawCharPreview();
+}
+
+// Aperçu : le personnage dans sa barque, sur un petit bout de lac
+function drawCharPreview() {
+  const cv = $('char-canvas');
+  const c = cv.getContext('2d');
+  ditherGradient(c, 0, 0, cv.width, 30, ['#5a8fe4', '#a8d2f8', '#d2ecfc']);
+  ditherGradient(c, 0, 30, cv.width, 20, ['#86cff2', '#3384c4', '#1b4c86']);
+  pxRect(c, 0, 30, cv.width, 1, '#c4ecff');
+  const boat = buildBoat(charMode === 'edit' ? currentLook(charDraft) : validLook(charDraft));
+  c.drawImage(boat, 24 + BOAT_SPR.px, BOAT_SPR.py, 76, 48, 0, 4, 76, 48);
+}
+
+$('char-opts').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-look]');
+  if (!b) return;
+  charDraft[b.dataset.look] = b.dataset.val;
+  Sound.click();
+  renderCharEditor();
+});
+$('char-random').addEventListener('click', () => {
+  charDraft = { ...randomLook(charDraft.name), gear: charDraft.gear };
+  Sound.click();
+  renderCharEditor();
+});
+$('char-name').addEventListener('input', (e) => {
+  charDraft.name = e.target.value.slice(0, NAME_MAX);
+  $('char-hint').textContent = '';
+});
+$('char-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('char-ok').click(); });
+
+$('char-ok').addEventListener('click', () => {
+  if (charMode === 'edit') {
+    progress.look = { ...validLook(charDraft), name: progress.look.name };
+    refreshBoat();
+    writeSave();
+    updateHud();
+    openPanel('sheet');
+    return;
+  }
+  const name = charDraft.name.trim();
+  if (!name) {
+    $('char-hint').textContent = 'Choisissez un nom pour votre personnage.';
+    $('char-name').focus();
+    Sound.miss();
+    return;
+  }
+  const look = validLook({ ...charDraft, name });
+  if (charMode === 'create') {
+    clearSave();
+    progress = emptyProgress();
+  }
+  progress.look = look;
   writeSave();
+  closePanel();
   enterGame();
+});
+$('char-cancel').addEventListener('click', () => {
+  Sound.click();
+  if (charMode === 'edit') openPanel('sheet');
+  else { closePanel(); refreshMenu(); }
 });
 
 $('btn-options').addEventListener('click', () => openPanel('options'));
+$('btn-leaderboard').addEventListener('click', () => openPanel('leaderboard'));
+
+// ---------------------------------------------------------------------------
+// Classement en ligne, sans serveur :
+//  - « Envoyer mon score » ouvre une issue GitHub pré-remplie (titre « [Score] … » + bloc JSON signé) ;
+//  - une GitHub Action vérifie le score et met à jour leaderboard.json dans le dépôt ;
+//  - le jeu lit leaderboard.json directement sur GitHub.
+// ---------------------------------------------------------------------------
+const LEADERBOARD = { repo: 'socrux/jeux-p-che', branch: 'main', salt: 'lac-tranquille/score/v1' };
+const LB_FIELDS = ['v', 'version', 'name', 'earned', 'caught', 'casts', 'aboms', 'heaviestKg', 'heaviestFish', 'dex', 'days', 'boat', 'cthulhu', 'playTime'];
+const LB_CATS = [
+  { id: 'earned',   name: 'Pièces gagnées',   val: (p) => p.earned,           fmt: (p) => `${fmtNum(p.earned)} ${coinImg()}` },
+  { id: 'heaviest', name: 'Plus grosse prise', val: (p) => p.heaviest?.kg || 0, fmt: (p) => (p.heaviest?.kg ? `${fmtKg(p.heaviest.kg)} · ${escapeHtml(p.heaviest.fish)}` : '—') },
+  { id: 'dex',      name: 'Carnet',           val: (p) => p.dex,              fmt: (p) => `${p.dex} / ${dexTotal()}` },
+  { id: 'days',     name: 'Jours au lac',     val: (p) => p.days,             fmt: (p) => `${fmtNum(p.days)} jour${p.days > 1 ? 's' : ''}` },
+  { id: 'boat',     name: 'Bateau',           val: (p) => p.boat,             fmt: (p) => `${BOATS[p.boat - 1]?.name || '?'} (niv. ${p.boat})` },
+  { id: 'cthulhu',  name: 'Grand Ancien',     val: (p) => p.cthulhu,          fmt: (p) => `${p.cthulhu} fois` },
+];
+let lbData = null;
+let lbCat = 'earned';
+let lbStatus = '';
+
+// Hachage cyrb53 : identique à celui de scripts/leaderboard.mjs (signature du score)
+function cyrb53(str, seed = 0) {
+  let h1 = 0xdeadbeef ^ seed, h2 = 0x41c6ce57 ^ seed;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16).padStart(14, '0');
+}
+
+function scorePayload() {
+  const st = progress.stats;
+  const best = st.best ? creature(st.best.id) : null;
+  const s = {
+    v: 1,
+    version: GAME_VERSION,
+    name: progress.look?.name || 'Anonyme',
+    earned: Math.round(st.earned),
+    caught: st.caught,
+    casts: st.casts,
+    aboms: st.aboms,
+    heaviestKg: st.best ? st.best.weight : 0,
+    heaviestFish: best ? fishName(best, st.best.abom) : '',
+    dex: Object.keys(progress.dex).length,
+    days: dayOf(progress.clock),
+    boat: boatLevel(),
+    cthulhu: st.cthulhu || 0,
+    playTime: Math.round(st.playTime),
+  };
+  s.sig = cyrb53(`${LEADERBOARD.salt}|${LB_FIELDS.map((k) => `${k}=${s[k]}`).join('&')}`);
+  return s;
+}
+
+async function loadLeaderboard() {
+  lbStatus = 'Chargement du classement…';
+  renderLeaderboard();
+  try {
+    const url = `https://raw.githubusercontent.com/${LEADERBOARD.repo}/${LEADERBOARD.branch}/leaderboard.json?t=${Date.now()}`;
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) throw new Error(res.status);
+    lbData = await res.json();
+    lbStatus = '';
+  } catch {
+    lbStatus = "Impossible de charger le classement (pas de connexion, ou dépôt pas encore public).";
+  }
+  if (openPanelName === 'leaderboard') renderLeaderboard();
+}
+
+function renderLeaderboard() {
+  $('lb-tabs').innerHTML = LB_CATS.map((c) => `<button class="btn tab-lb ${c.id === lbCat ? 'active' : ''}" data-lb="${c.id}">${c.name}</button>`).join('');
+  const cat = LB_CATS.find((c) => c.id === lbCat);
+  const me = progress.look?.name;
+  const players = (lbData?.players || []).filter((p) => cat.val(p) > 0).sort((a, b) => cat.val(b) - cat.val(a)).slice(0, 50);
+  $('lb-list').innerHTML = lbStatus ? `<p class="lb-empty">${lbStatus}</p>`
+    : players.length ? players.map((p, i) => `
+      <div class="lb-row ${inGame && p.name === me ? 'me' : ''} ${i < 3 ? `top${i + 1}` : ''}">
+        <span class="lb-rank">${i + 1}</span>
+        <span class="lb-name">${escapeHtml(p.name)}<small>@${escapeHtml(p.login)}</small></span>
+        <span class="lb-val">${cat.fmt(p)}</span>
+      </div>`).join('')
+    : '<p class="lb-empty">Personne au classement pour le moment. Soyez le premier !</p>';
+  $('lb-updated').textContent = lbData?.updated ? `Mis à jour le ${new Date(lbData.updated).toLocaleString('fr-FR')}` : '';
+  const btn = $('lb-submit');
+  btn.disabled = !inGame || admin.on;
+  $('lb-hint').textContent = !inGame ? 'Lancez une partie pour envoyer votre score.'
+    : admin.on ? 'Les scores ne peuvent pas être envoyés en mode admin.'
+    : 'L\'envoi ouvre une page GitHub pré-remplie : il suffit de cliquer sur « Submit new issue » (un compte GitHub est nécessaire).';
+}
+
+function submitScore() {
+  if (!inGame || admin.on) return;
+  writeSave();
+  const s = scorePayload();
+  const body = [
+    `Score de **${s.name}** envoyé depuis Lac Tranquille ${GAME_VERSION}.`,
+    '',
+    `- Pièces gagnées : ${s.earned} · Prises : ${s.caught} · Abominations : ${s.aboms}`,
+    `- Carnet : ${s.dex} · Jours : ${s.days} · Bateau : ${s.boat} · Grand Ancien : ${s.cthulhu}`,
+    '',
+    'Ne modifiez pas le bloc ci-dessous, il est vérifié automatiquement :',
+    '',
+    '```json',
+    JSON.stringify(s),
+    '```',
+  ].join('\n');
+  const url = `https://github.com/${LEADERBOARD.repo}/issues/new?title=${encodeURIComponent(`[Score] ${s.name}`)}&body=${encodeURIComponent(body)}`;
+  window.open(url, '_blank', 'noopener');
+  $('lb-hint').textContent = 'Page GitHub ouverte : validez l\'issue, puis revenez dans quelques minutes et cliquez sur « Actualiser ».';
+  Sound.click();
+}
+
+$('lb-tabs').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-lb]');
+  if (!b) return;
+  lbCat = b.dataset.lb;
+  Sound.click();
+  renderLeaderboard();
+});
+$('lb-refresh').addEventListener('click', () => { Sound.click(); loadLeaderboard(); });
+$('lb-submit').addEventListener('click', submitScore);
 
 $('btn-menu').addEventListener('click', (e) => {
   e.currentTarget.blur();
@@ -2384,10 +2820,11 @@ $('btn-menu').addEventListener('click', (e) => {
 // Panneaux
 // ===========================================================================
 let openPanelName = null;
-const PANELS = ['book', 'shop', 'sheet', 'options', 'crates', 'pot', 'achievements'];
+const PANELS = ['book', 'shop', 'sheet', 'options', 'crates', 'pot', 'achievements', 'char', 'leaderboard'];
+const MENU_PANELS = ['options', 'char', 'leaderboard'];   // accessibles depuis le menu principal
 
 function openPanel(name) {
-  if (!inGame && name !== 'options') return;
+  if (!inGame && !MENU_PANELS.includes(name)) return;
   holding = false;
   $('overlay').hidden = false;
   $('message').hidden = true;
@@ -2400,6 +2837,8 @@ function openPanel(name) {
   if (name === 'crates') renderCrates();
   if (name === 'pot') renderPotRecap();
   if (name === 'achievements') renderAchievements();
+  if (name === 'char') renderCharEditor();
+  if (name === 'leaderboard') { renderLeaderboard(); loadLeaderboard(); }
   Sound.click();
 }
 
@@ -2415,7 +2854,8 @@ function closePanel() {
 document.querySelectorAll('[data-open]').forEach((b) =>
   b.addEventListener('click', (e) => { e.currentTarget.blur(); openPanel(b.dataset.open); }));
 document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => { Sound.click(); closePanel(); }));
-$('overlay').addEventListener('pointerdown', (e) => { if (e.target.id === 'overlay') closePanel(); });
+// clic à côté d'un panneau : on le ferme (sauf l'éditeur de personnage, pour ne rien perdre par erreur)
+$('overlay').addEventListener('pointerdown', (e) => { if (e.target.id === 'overlay' && openPanelName !== 'char') closePanel(); });
 
 // ---------------------------------------------------------------------------
 // Carnet (livre) : deux sections, Poissons et Crustacés
@@ -2581,13 +3021,15 @@ function renderShop() {
       const owned = progress.rods.includes(r.id);
       const equipped = progress.rod === r.id;
       let btn;
+      const locked = !owned && !tierUnlocked(r.tier);
       if (equipped) btn = '<button class="btn" disabled>Équipée</button>';
       else if (owned) btn = `<button class="btn" data-equip-rod="${r.id}">Équiper</button>`;
+      else if (locked) btn = `<button class="btn" disabled>${lockText(r.tier)}</button>`;
       else btn = `<button class="btn" data-buy-rod="${r.id}" ${progress.money < r.price ? 'disabled' : ''}>Acheter — ${fmtNum(r.price)} ${coinImg()}</button>`;
       html += `
-        <div class="item ${equipped ? 'equipped' : ''}">
+        <div class="item ${equipped ? 'equipped' : ''} ${locked ? 'locked' : ''}">
           <img class="item-icon" src="${itemIcon('rod', r)}" alt="">
-          <div class="info"><b>${r.name}</b><small>${r.desc}</small><span class="eff">${rodEffects(r)}</span></div>
+          <div class="info"><b>${r.name} <span class="tier">niv. ${r.tier}</span></b><small>${r.desc}</small><span class="eff">${rodEffects(r)}</span></div>
           <div class="actions">${btn}</div>
         </div>`;
     }
@@ -2595,15 +3037,20 @@ function renderShop() {
     for (const p of POTS) {
       const owned = progress.potsOwned[p.id] || 0;
       const deployed = owned - potsAvailable(p.id);
+      const locked = !tierUnlocked(p.tier);
       html += `
-        <div class="item">
+        <div class="item ${locked ? 'locked' : ''}">
           <img class="item-icon" src="${itemIcon('pot', p)}" alt="">
-          <div class="info"><b>${p.name}</b><small>${p.desc}</small>
+          <div class="info"><b>${p.name} <span class="tier">niv. ${p.tier}</span></b><small>${p.desc}</small>
             <span class="eff">${potEffects(p)}</span>
             <span class="stock">Possédées : ${owned}${deployed ? ` (dont ${deployed} à l'eau)` : ''}</span></div>
-          <div class="actions"><button class="btn" data-buy-pot="${p.id}" ${progress.money < p.price ? 'disabled' : ''}>Acheter — ${fmtNum(p.price)} ${coinImg()}</button></div>
+          <div class="actions">${locked
+            ? `<button class="btn" disabled>${lockText(p.tier)}</button>`
+            : `<button class="btn" data-buy-pot="${p.id}" ${progress.money < p.price ? 'disabled' : ''}>Acheter — ${fmtNum(p.price)} ${coinImg()}</button>`}</div>
         </div>`;
     }
+  } else if (shopTab === 'yard') {
+    html = renderYard();
   } else {
     for (const b of BAITS) {
       const qty = progress.baits[b.id] || 0;
@@ -2624,6 +3071,86 @@ function renderShop() {
     }
   }
   $('shop-list').innerHTML = html;
+  // aperçus des bateaux dans le chantier
+  document.querySelectorAll('#shop-list canvas[data-boat]').forEach((cv) => {
+    const spr = buildBoat(currentLook(), +cv.dataset.boat);
+    cv.getContext('2d').drawImage(spr, 0, 0);
+  });
+}
+
+// Mise à l'eau du nouveau bateau : on passe au niveau suivant puis on lance l'animation
+function startBoatSwap() {
+  if (!boatReady()) return;
+  const nb = nextBoat();
+  const old = boatSprite;
+  const oldLevel = boatLevel();
+  // les pièces de ce bateau sont consommées
+  const used = [...nb.parts.map((p) => p.id), nb.special.id];
+  progress.boat.parts = progress.boat.parts.filter((id) => !used.includes(id));
+  progress.boat.level = nb.level;
+  refreshBoat();
+  closePanel();
+  holding = false;
+  $('catch-card').hidden = true;
+  game.swap = { old, oldLevel };
+  setState('boatSwap');
+  say(`Au revoir, ${BOATS[oldLevel - 1].name}…`);
+  Sound.phase();
+  writeSave();
+}
+
+// niveau de bateau nécessaire pour un objet de rang « tier »
+const tierBoatLevel = (tier) => Math.max(1, Math.ceil((tier - 1) / 2));
+const lockText = (tier) => `Bateau niveau ${tierBoatLevel(tier)} requis`;
+
+// ---------------------------------------------------------------------------
+// Chantier naval : pièces du prochain bateau
+// ---------------------------------------------------------------------------
+function renderYard() {
+  const cur = boatDef();
+  const nb = nextBoat();
+  const boatCanvas = (level) => `<canvas class="px yard-boat" width="${BOAT_SPR.w}" height="${BOAT_SPR.h}" data-boat="${level}"></canvas>`;
+  let html = `
+    <div class="yard-head">
+      <div class="yard-card">${boatCanvas(cur.level)}
+        <div><small>Votre bateau · niveau ${cur.level} / ${BOAT_MAX}</small><b>${cur.name}</b>
+        <span class="stock">${cur.desc}</span>
+        <span class="eff">Cannes et caisses jusqu'au niveau ${boatMaxTier(cur.level)}</span></div></div>`;
+  if (!nb) {
+    return `${html}<div class="yard-card"><div><b>Bateau au niveau maximum</b>
+      <span class="stock">Il n'existe rien de plus perfectionné sur ce lac. Ni sur aucun autre.</span></div></div></div>`;
+  }
+  const ready = boatReady();
+  html += `
+      <div class="yard-card next">${boatCanvas(nb.level)}
+        <div><small>Prochain bateau · niveau ${nb.level}</small><b>${nb.name}</b>
+        <span class="stock">${nb.desc}</span>
+        <span class="eff">Débloque les cannes et caisses jusqu'au niveau ${boatMaxTier(nb.level)}</span></div></div>
+    </div>`;
+  for (const p of nb.parts) {
+    const got = hasPart(p.id);
+    html += `
+      <div class="item ${got ? 'equipped' : ''}">
+        <img class="item-icon" src="${ICONS.boat}" alt="">
+        <div class="info"><b>${p.name}</b><small>Pièce pour le ${nb.name}</small></div>
+        <div class="actions">${got ? '<button class="btn" disabled>Acquise</button>'
+          : `<button class="btn" data-buy-part="${p.id}" ${progress.money < p.price ? 'disabled' : ''}>Acheter — ${fmtNum(p.price)} ${coinImg()}</button>`}</div>
+      </div>`;
+  }
+  const sp = nb.special;
+  const spGot = hasPart(sp.id);
+  html += `
+      <div class="item special ${spGot ? 'equipped' : ''}">
+        <img class="item-icon" src="${ICONS.boat}" alt="">
+        <div class="info"><b>${spGot ? sp.name : '???'} <span class="tier">pièce spéciale</span></b>
+          <small>${spGot ? sp.desc : 'Introuvable en boutique. Elle se trouve en pêchant (poissons et caisses), une seule fois.'}</small>
+          ${spGot ? '' : `<span class="eff">Chance par poisson : ${fmtPct(specialPartChance(0, 'fish'))} (commun) → ${fmtPct(specialPartChance(4, 'fish'))} (légendaire)</span>`}</div>
+        <div class="actions"><button class="btn" disabled>${spGot ? 'Trouvée' : 'À trouver'}</button></div>
+      </div>
+      <div class="yard-go">
+        <button class="btn" data-assemble ${ready ? '' : 'disabled'}>${ready ? `Mettre le ${nb.name} à l'eau !` : `Pièces réunies : ${nb.parts.filter((p) => hasPart(p.id)).length + (spGot ? 1 : 0)} / ${nb.parts.length + 1}`}</button>
+      </div>`;
+  return html;
 }
 
 document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => {
@@ -2636,9 +3163,21 @@ function onGearClick(e) {
   const t = e.target.closest('button');
   if (!t) return;
   const d = t.dataset;
-  if (d.buyRod) {
+  if (d.assemble !== undefined) {
+    if (boatReady()) startBoatSwap();
+    return;
+  }
+  if (d.buyPart) {
+    const p = nextBoat()?.parts.find((x) => x.id === d.buyPart);
+    if (!p || hasPart(p.id) || progress.money < p.price) return;
+    progress.money -= p.price;
+    progress.stats.spent += p.price;
+    progress.boat.parts.push(p.id);
+    Sound.buy();
+    if (boatReady()) pushToast({ icon: ICONS.boat, label: 'Chantier naval', title: 'Toutes les pièces sont réunies !', sub: `Le ${nextBoat().name} est prêt à être mis à l'eau.`, sound: () => Sound.chestGet() });
+  } else if (d.buyRod) {
     const r = ROD_BY_ID[d.buyRod];
-    if (progress.money < r.price || progress.rods.includes(r.id)) return;
+    if (progress.money < r.price || progress.rods.includes(r.id) || !tierUnlocked(r.tier)) return;
     progress.money -= r.price;
     progress.stats.spent += r.price;
     progress.rods.push(r.id);
@@ -2653,7 +3192,7 @@ function onGearClick(e) {
     Sound.buy();
   } else if (d.buyPot) {
     const p = POT_BY_ID[d.buyPot];
-    if (progress.money < p.price) return;
+    if (progress.money < p.price || !tierUnlocked(p.tier)) return;
     progress.money -= p.price;
     progress.stats.spent += p.price;
     progress.potsOwned[p.id] = (progress.potsOwned[p.id] || 0) + 1;
@@ -2685,7 +3224,7 @@ function drawPortrait() {
   ditherGradient(c, 0, 58, 150, 38, ['#86cff2', '#3384c4', '#1b4c86']);
   pxRect(c, 0, 58, 150, 1, '#c4ecff');
   pxDisk(c, 128, 16, 8, '#fff3b8');
-  c.drawImage(boatSprite, 2, 38);
+  c.drawImage(boatSprite, 2 - BOAT_SPR.px, 38 - BOAT_SPR.py);
   const hand = { x: 2 + HAND.x, y: 38 + HAND.y };
   const tip = { x: 136, y: 18 };
   pxCurve(c, { x: hand.x - 6, y: hand.y + 4 }, { x: 104, y: 34 }, tip, rod().color);
@@ -2703,6 +3242,8 @@ let invFilter = 'all';
 let sellConfirm = false;
 
 function renderSheet() {
+  const look = validLook(progress.look);
+  $('sheet-title').textContent = look.name ? `${look.name}, ${fisherWord(look.sex)}` : `Profil du ${fisherWord(look.sex)}`;
   document.querySelectorAll('[data-stab]').forEach((b) => b.classList.toggle('active', b.dataset.stab === sheetTab));
   $('inv-count').textContent = `(${progress.items.length})`;
   $('sheet-main').hidden = sheetTab !== 'gear';
@@ -2857,6 +3398,7 @@ function renderSheetMain() {
     `<button class="btn ${x.id === b.id ? 'active' : ''}" data-equip-bait="${x.id}">${x.name}${x.pack ? ` (${progress.baits[x.id]})` : ''}</button>`).join('');
 
   $('sheet-gear').innerHTML = `
+    <div class="chips char-edit"><button class="btn" data-edit-char>Modifier mon personnage</button></div>
     <h3>Équipement</h3>
     <div class="slot">
       <div class="slot-top"><img src="${itemIcon('rod', r)}" alt="">
@@ -2899,6 +3441,10 @@ function renderSheetMain() {
     ['Coffres récupérés', fmtNum(st.chests || 0)],
     ['Plus lourde prise', best],
     ['Entrées du carnet', `${known} / ${dexTotal()}`],
+    ['section', 'Bateau'],
+    ['Bateau actuel', `${boatDef().name} (niveau ${boatLevel()} / ${BOAT_MAX})`],
+    ['Cannes et caisses débloquées', `jusqu'au niveau ${boatMaxTier(boatLevel())}`],
+    ['Prochain bateau', nextBoat() ? `${nextBoat().name} : ${nextBoat().parts.filter((x) => hasPart(x.id)).length + (hasPart(nextBoat().special.id) ? 1 : 0)} / ${nextBoat().parts.length + 1} pièces` : '—'],
     ['section', 'Le temps qui passe'],
     ['Jour', `${dayOf(progress.clock)} (${fmtHour(progress.clock)})`],
     ['Météo', weatherLabel()],
@@ -2933,6 +3479,10 @@ function renderSheetMain() {
 }
 
 $('sheet-gear').addEventListener('click', (e) => {
+  if (e.target.closest('[data-edit-char]')) {
+    openCharEditor('edit');
+    return;
+  }
   if (e.target.closest('[data-goto-inv]')) {
     sheetTab = 'inv';
     Sound.click();
@@ -3041,8 +3591,9 @@ function renderPotRecap() {
   const t = POT_BY_ID[lp.type];
   const total = lp.results.reduce((s, r) => s + r.money, 0);
   $('pot-title').textContent = `Relevé : ${t.name}`;
-  $('pot-items').hidden = !lp.drops?.length;
-  $('pot-items').innerHTML = (lp.drops || []).map((d) => `<div class="cc-loot">${dropHtml(d)}</div>`).join('');
+  $('pot-items').hidden = !lp.drops?.length && !lp.part;
+  $('pot-items').innerHTML = (lp.part ? `<div class="cc-loot cc-part">${partHtml(lp.part)}</div>` : '') +
+    (lp.drops || []).map((d) => `<div class="cc-loot">${dropHtml(d)}</div>`).join('');
   $('pot-total').innerHTML = lp.results.length ? `Total : + ${fmtNum(total)} ${coinImg()}` : '';
   $('pot-list').innerHTML = lp.results.length
     ? lp.results.map((r, k) => {
@@ -3123,6 +3674,11 @@ const ACHIEVEMENTS = [
   { id: 'rain_legend',  name: 'Chanter sous la pluie',     desc: 'Pêcher un poisson légendaire sous la pluie.',       test: (p, ev) => isFishCatch(ev) && ev.f.tier === 4 && weather().id === 'pluie' },
   { id: 'storm_abom',   name: "Enfant de l'orage",         desc: "Pêcher une abomination pendant l'orage.",            test: (p, ev) => isCatch(ev) && ev.abom && weather().id === 'orage' },
   { id: 'rainbow',      name: "Au pied de l'arc-en-ciel",  desc: 'Voir un arc-en-ciel sur le lac.',                   test: () => weather().id === 'arcenciel' },
+  { id: 'special_part', name: 'Pièce de collection',       desc: 'Trouver une pièce spéciale de bateau.',             test: (p, ev) => ev.type === 'part' },
+  { id: 'boat_2',       name: 'Vroum !',                   desc: 'Passer au canot à moteur.',                         test: (p) => (p.boat?.level || 1) >= 2 },
+  { id: 'boat_3',       name: 'Patron pêcheur',            desc: 'Passer au bateau de pêche.',                        test: (p) => (p.boat?.level || 1) >= 3 },
+  { id: 'boat_4',       name: 'Loup de mer',               desc: 'Passer au chalutier.',                              test: (p) => (p.boat?.level || 1) >= 4 },
+  { id: 'boat_5',       name: 'Capitaine des abysses',     desc: 'Mettre à l\'eau le navire Abysse-X.',               test: (p) => (p.boat?.level || 1) >= 5 },
 ];
 
 const toastQueue = [];
@@ -3254,12 +3810,16 @@ $('save-apply').addEventListener('click', () => {
 // ---------------------------------------------------------------------------
 // Mode admin
 // ---------------------------------------------------------------------------
-function saveAdmin() {
-  try { localStorage.setItem(ADMIN_KEY, JSON.stringify({ on: admin.on })); } catch { /* idem */ }
+// Plus de case à cocher : le mode admin ne s'active plus depuis l'interface.
+// setAdmin(true) reste disponible pour brancher plus tard un autre moyen d'activation.
+function setAdmin(on) {
+  admin.on = !!on;
+  if (!admin.on) { admin.forced = 'random'; admin.corruption = null; }
+  syncAdmin();
 }
 
 function syncAdmin() {
-  $('opt-admin').checked = admin.on;
+  $('admin-box').hidden = !admin.on;
   $('admin-tools').hidden = !admin.on;
   const sel = $('admin-fish');
   if (!sel.options.length) {
@@ -3282,12 +3842,6 @@ function syncAdmin() {
   updateHud();
 }
 
-$('opt-admin').addEventListener('change', (e) => {
-  admin.on = e.target.checked;
-  if (!admin.on) { admin.forced = 'random'; admin.corruption = null; }
-  saveAdmin();
-  syncAdmin();
-});
 $('admin-fish').addEventListener('change', (e) => { admin.forced = e.target.value; });
 $('admin-corrupt').addEventListener('input', (e) => {
   admin.corruption = e.target.value / 100;
@@ -3398,6 +3952,8 @@ for (const ev of ['pointerup', 'pointercancel', 'blur']) window.addEventListener
 window.addEventListener('keyup', (e) => { if (e.code === 'Space') holding = false; });
 
 window.addEventListener('keydown', (e) => {
+  // on tape dans un champ (nom du personnage…) : pas de raccourcis, sauf Échap
+  if (e.target.matches?.('input, textarea, select') && e.code !== 'Escape') return;
   if (e.code === 'Escape') {
     if (openPanelName) closePanel();
     else if (inGame) showMenu();
@@ -3448,6 +4004,34 @@ window.addEventListener('resize', fitUi);
 // ===========================================================================
 // Démarrage & boucle
 // ===========================================================================
+// ---------------------------------------------------------------------------
+// Disque « musique en cours », en bas à droite
+// ---------------------------------------------------------------------------
+const TRACKS = {
+  calm: { title: 'Ricochets sur le Lac Tranquille', info: 'Thème principal' },
+  epic: { title: "L'Éveil du Grand Ancien", info: 'Combat' },
+};
+let npKey = '';
+function updateNowPlaying() {
+  const np = Sound.nowPlaying();
+  const key = `${np.track}|${np.playing}`;
+  if (key === npKey) return;
+  const changed = npKey && npKey.split('|')[0] !== np.track;
+  npKey = key;
+  const tr = TRACKS[np.track] || TRACKS.calm;
+  const el = $('now-playing');
+  $('np-title').textContent = tr.title;
+  el.title = `${tr.title} — ${tr.info}${np.playing ? '' : ' (en pause : musique coupée ou pas encore lancée)'}`;
+  el.classList.toggle('paused', !np.playing);
+  el.classList.toggle('epic', np.track === 'epic');
+  if (changed) {                                   // petite animation au changement de morceau
+    el.classList.remove('swap');
+    void el.offsetWidth;
+    el.classList.add('swap');
+  }
+}
+$('np-disc').getContext('2d').drawImage(buildDiscIcon(), 0, 0);
+
 $('game-version').textContent = GAME_VERSION;
 buildIcons();
 document.querySelectorAll('img[data-icon]').forEach((img) => { img.src = ICONS[img.dataset.icon]; });
@@ -3462,6 +4046,7 @@ function loop(now) {
   last = now;
   update(dt);
   render();
+  updateNowPlaying();
   if (openPanelName === 'book') for (const b of bookCanvases) renderFishCanvas(b.cv, b.f, { abom: b.abom, silhouette: !b.known, t: time });
   if (openPanelName === 'pot') for (const b of potCanvases) renderFishCanvas(b.cv, b.f, { abom: b.abom, t: time });
   if (inGame && game.state === 'caught' && game.catch) renderFishCanvas($('cc-fish'), game.catch.f, { abom: game.catch.abom, t: time });

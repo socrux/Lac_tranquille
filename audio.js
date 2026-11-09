@@ -485,5 +485,8 @@ const Sound = (() => {
     kick(t, 0.5, 90);
   };
 
-  return { init, set, settings, setMusic, ...sfx };
+  // morceau en cours ('calm' ou 'epic') et s'il est réellement audible
+  const nowPlaying = () => ({ track: mode, playing: !!ac && ac.state === 'running' && !settings.muted && settings.music > 0 });
+
+  return { init, set, settings, setMusic, nowPlaying, ...sfx };
 })();

@@ -17,6 +17,7 @@
     <div id="hud" hidden>
       <div class="hud-left">
         <div class="hud-stats box">
+          <div class="hud-name" id="hud-name"></div>
           <div class="money"><img class="coin" data-icon="coin" alt=""> <span id="hud-money">0</span></div>
           <div>Poissons : <span id="hud-count">0</span></div>
           <div>Appât : <span id="hud-bait">—</span></div>
@@ -43,6 +44,12 @@
     <div id="toasts"></div>
     <div id="inv-tip" class="inv-diff" hidden></div>
 
+    <!-- Musique en cours -->
+    <div id="now-playing" class="box" title="Musique en cours">
+      <canvas id="np-disc" class="px" width="16" height="16"></canvas>
+      <div class="np-text"><small>En écoute</small><span id="np-title"></span></div>
+    </div>
+
     <!-- Carte de prise -->
     <div id="catch-card" class="box" hidden>
       <div class="cc-rarity" id="cc-rarity"></div>
@@ -52,6 +59,7 @@
       <div class="cc-money" id="cc-money"></div>
       <div class="cc-loot" id="cc-loot" hidden></div>
       <div class="cc-loot cc-item" id="cc-item" hidden></div>
+      <div class="cc-loot cc-part" id="cc-part" hidden></div>
       <div class="cc-badges" id="cc-badges"></div>
       <button class="btn cc-continue" id="cc-continue">Continuer</button>
     </div>
@@ -62,6 +70,7 @@
       <p class="subtitle">Un bateau, une canne, et tout le temps du monde.</p>
       <button class="menu-item" id="btn-continue">Continuer</button>
       <button class="menu-item" id="btn-new">Nouvelle partie</button>
+      <button class="menu-item" id="btn-leaderboard">Classement</button>
       <button class="menu-item" id="btn-options">Options</button>
       <p id="save-info"></p>
     </div>
@@ -95,6 +104,7 @@
           <button class="btn tab active" data-tab="rods">Cannes à pêche</button>
           <button class="btn tab" data-tab="baits">Appâts</button>
           <button class="btn tab" data-tab="pots">Caisses</button>
+          <button class="btn tab" data-tab="yard">Chantier naval</button>
         </div>
         <div id="shop-list" class="item-list"></div>
       </div>
@@ -102,7 +112,7 @@
       <!-- Profil -->
       <div id="panel-sheet" class="panel-wrap panel box" hidden>
         <header>
-          <h2><img data-icon="profile" alt="">Profil du pêcheur</h2>
+          <h2><img data-icon="profile" alt=""><span id="sheet-title">Profil</span></h2>
           <div class="sheet-tabs">
             <button class="btn" data-stab="gear">Fiche</button>
             <button class="btn" data-stab="inv" title="Raccourci : I">Inventaire <span id="inv-count"></span></button>
@@ -137,6 +147,44 @@
         </div>
       </div>
 
+      <!-- Classement (alimenté par la GitHub Action, voir .github/workflows/leaderboard.yml) -->
+      <div id="panel-leaderboard" class="panel-wrap panel box" hidden>
+        <header>
+          <h2><img data-icon="trophy" alt="">Classement</h2>
+          <span class="lb-updated" id="lb-updated"></span>
+          <button class="btn close" data-close>Fermer</button>
+        </header>
+        <div class="tabs" id="lb-tabs"></div>
+        <div id="lb-list" class="lb-list"></div>
+        <div class="lb-foot">
+          <p class="lb-hint" id="lb-hint"></p>
+          <button class="btn" id="lb-refresh">Actualiser</button>
+          <button class="btn" id="lb-submit">Envoyer mon score</button>
+        </div>
+      </div>
+
+      <!-- Création / modification du personnage -->
+      <div id="panel-char" class="panel-wrap panel box" hidden>
+        <header>
+          <h2><img data-icon="profile" alt=""><span id="char-title">Nouveau personnage</span></h2>
+        </header>
+        <div class="char">
+          <section class="char-preview">
+            <canvas id="char-canvas" class="px" width="76" height="50"></canvas>
+            <label class="char-name">Nom
+              <input id="char-name" maxlength="16" autocomplete="off" spellcheck="false" placeholder="Votre nom">
+            </label>
+            <p class="char-hint" id="char-hint"></p>
+            <button class="btn" id="char-random">Apparence aléatoire</button>
+          </section>
+          <section class="char-opts" id="char-opts"></section>
+        </div>
+        <div class="pot-actions">
+          <button class="btn" id="char-ok">Commencer</button>
+          <button class="btn" id="char-cancel">Annuler</button>
+        </div>
+      </div>
+
       <!-- Caisses à crustacés -->
       <div id="panel-crates" class="panel-wrap panel box" hidden>
         <header>
@@ -167,6 +215,7 @@
         <header>
           <h2><img data-icon="trophy" alt="">Succès</h2>
           <div class="money" id="ach-count"></div>
+          <button class="btn" data-open="leaderboard">Classement</button>
           <button class="btn close" data-close>Fermer</button>
         </header>
         <div id="ach-list" class="ach-list"></div>
@@ -211,8 +260,8 @@
           </div>
           <p class="admin-hint" id="save-msg"></p>
         </div>
-        <div class="admin-box">
-          <label class="check"><input type="checkbox" id="opt-admin"> Mode admin</label>
+        <div class="admin-box" id="admin-box" hidden>
+          <div class="admin-tag">MODE ADMIN</div>
           <div id="admin-tools" hidden>
             <div class="opt-row">
               <label for="admin-fish">Prochain poisson</label>
@@ -248,6 +297,7 @@
   <script src="audio.js"></script>
   <script src="pixel.js"></script>
   <script src="world.js"></script>
+  <script src="character.js"></script>
   <script src="game.js"></script>
 </body>
 </html>

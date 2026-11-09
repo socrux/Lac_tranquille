@@ -225,6 +225,7 @@ button { font-family: inherit; color: #fff; text-shadow: var(--outline); cursor:
   align-items: center;
   justify-content: center;
   background: rgba(5, 8, 22, 0.55);
+  z-index: 5;                 /* au-dessus du disque « musique en cours » */
 }
 
 .panel-wrap { width: 92%; height: 90%; display: flex; flex-direction: column; }
@@ -493,6 +494,72 @@ button { font-family: inherit; color: #fff; text-shadow: var(--outline); cursor:
 .admin-hint { font-size: 0.85em; opacity: 0.8; margin: 0.6em 0 0; }
 .admin-tag { color: #ff7a7a; font-size: 0.8em; letter-spacing: 0.1em; }
 
+/* ---------- Musique en cours ---------- */
+#now-playing {
+  position: absolute;
+  right: 0.8em;
+  bottom: 0.8em;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 0.55em;
+  max-width: 19em;
+  padding: 0.35em 0.8em 0.35em 0.45em;
+  pointer-events: auto;
+}
+#np-disc { width: 2.4em; height: 2.4em; flex: none; animation: spin 2.4s linear infinite; }
+#now-playing.paused #np-disc { animation-play-state: paused; }
+#now-playing.paused { opacity: 0.6; }
+#now-playing.epic { box-shadow: inset 0 0 0 0.14em #3fd08a, 0 0 1em rgba(60, 220, 140, 0.5); }
+#now-playing.epic #np-disc { animation-duration: 1.1s; }
+#now-playing.swap { animation: npSwap 0.5s ease-out; }
+.np-text { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
+.np-text small { font-size: 0.7em; letter-spacing: 0.1em; text-transform: uppercase; color: #ffe56a; }
+#np-title { font-size: 0.9em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes npSwap { from { transform: translateY(150%); } to { transform: none; } }
+
+/* ---------- Personnage ---------- */
+.hud-name { color: #ffe56a; font-weight: 600; }
+.char-edit { margin: 0 0 0.4em; }
+.char { flex: 1; min-height: 0; display: flex; gap: 1.4em; }
+.char-preview { width: 22em; flex: none; display: flex; flex-direction: column; gap: 0.6em; align-items: stretch; }
+#char-canvas {
+  width: 100%;
+  border: 0.14em solid #141c50;
+  box-shadow: inset 0 0 0 0.1em #6f80dc;
+  border-radius: 0.3em;
+}
+.char-name { display: flex; flex-direction: column; gap: 0.25em; font-size: 1.1em; color: #ffe56a; }
+.char-name input {
+  font-family: inherit;
+  font-size: 1.1em;
+  padding: 0.3em 0.5em;
+  color: #fff;
+  background: #1e2a6a;
+  border: 0.12em solid #8394ec;
+  border-radius: 0.25em;
+  outline: none;
+}
+.char-name input:focus { border-color: #ffd84a; }
+.char-name input:disabled { opacity: 0.6; }
+.char-hint { margin: 0; min-height: 1.2em; font-size: 0.9em; color: #ffb0a0; }
+.char-opts { flex: 1; overflow-y: auto; padding-right: 0.4em; }
+.char-row { margin-bottom: 0.65em; }
+.char-label { font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.8; margin-bottom: 0.25em; }
+.char-row .chips { margin: 0; }
+.swatches { display: flex; flex-wrap: wrap; gap: 0.3em; }
+.swatch {
+  width: 1.8em;
+  height: 1.8em;
+  padding: 0;
+  border: 0.14em solid #141c50;
+  border-radius: 0.25em;
+  box-shadow: inset 0 0 0 0.08em rgba(255, 255, 255, 0.25);
+}
+.swatch:hover { transform: scale(1.12); }
+.swatch.active { border-color: #ffd84a; box-shadow: 0 0 0 0.12em #ffd84a; }
+
 .version { margin: 1em 0 0; text-align: right; font-size: 0.85em; opacity: 0.6; }
 
 /* ---------- Sauvegarde ---------- */
@@ -517,6 +584,46 @@ button { font-family: inherit; color: #fff; text-shadow: var(--outline); cursor:
 .cc-item { color: #fff; }
 .cc-item img { width: 1.6em; height: 1.6em; }
 .cc-item small { color: #ffe56a; }
+.cc-part { box-shadow: inset 0 0 0 0.12em #ffd84a; }
+
+/* ---------- Classement ---------- */
+.lb-updated { font-size: 0.85em; opacity: 0.75; }
+.lb-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 0.3em; padding-right: 0.3em; }
+.lb-row {
+  display: grid; grid-template-columns: 2.5em 1fr auto; align-items: center; gap: 0.8em;
+  padding: 0.4em 0.8em; background: rgba(58, 76, 168, 0.6); border-radius: 0.3em; font-size: 1.1em;
+}
+.lb-row.me { box-shadow: inset 0 0 0 0.14em #7cf08a; }
+.lb-row.top1 { box-shadow: inset 0 0 0 0.14em #ffd84a; }
+.lb-row.top2 { box-shadow: inset 0 0 0 0.14em #d8e0e8; }
+.lb-row.top3 { box-shadow: inset 0 0 0 0.14em #d0884a; }
+.lb-rank { font-size: 1.3em; color: #ffe56a; text-align: center; }
+.lb-name small { margin-left: 0.6em; font-size: 0.7em; opacity: 0.65; }
+.lb-val { white-space: nowrap; }
+.lb-val img { width: 1em; height: 1em; vertical-align: -0.12em; }
+.lb-empty { text-align: center; font-size: 1.2em; opacity: 0.85; margin: 3em 1em; }
+.lb-foot { display: flex; align-items: center; gap: 0.6em; padding-top: 0.6em; }
+.lb-hint { flex: 1; margin: 0; font-size: 0.85em; opacity: 0.8; }
+
+/* ---------- Boutique : niveaux et chantier naval ---------- */
+.tier { font-size: 0.7em; font-weight: 400; color: #b8c4ff; letter-spacing: 0.05em; margin-left: 0.3em; }
+.item.locked { background: rgba(30, 36, 70, 0.75); box-shadow: inset 0 0 0 0.1em #3a4478; }
+.item.locked .info, .item.locked .item-icon { opacity: 0.55; }
+.yard-head { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 0.6em; }
+.yard-card {
+  display: flex; gap: 0.8em; align-items: center; padding: 0.6em 0.8em;
+  background: rgba(20, 28, 80, 0.6); border-radius: 0.3em; box-shadow: inset 0 0 0 0.1em #6f80dc;
+}
+.yard-card.next { box-shadow: inset 0 0 0 0.14em #ffd84a; }
+.yard-card > div { display: flex; flex-direction: column; gap: 0.15em; min-width: 0; }
+.yard-card small { font-size: 0.8em; letter-spacing: 0.08em; text-transform: uppercase; color: #ffe56a; }
+.yard-card b { font-size: 1.25em; }
+.yard-boat { width: 11em; flex: none; background: linear-gradient(#a8d2f8 60%, #3384c4 60%); border-radius: 0.25em; }
+.item.special { box-shadow: inset 0 0 0 0.12em #c8962e; }
+.yard-go { grid-column: 1 / -1; display: flex; justify-content: center; padding: 0.4em 0; }
+.yard-go .btn { font-size: 1.2em; padding: 0.4em 1.4em; }
+.yard-go .btn:not(:disabled) { background: #b8861a; box-shadow: inset 0 0 0 0.12em #ffe08a; animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { transform: scale(1.05); } }
 
 /* ---------- Profil : onglets & inventaire ---------- */
 .sheet-tabs { display: flex; gap: 0.4em; margin-left: 1em; }

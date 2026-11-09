@@ -1,0 +1,59 @@
+# Classement de Lac Tranquille : chaque issue « [Score] … » ouverte depuis le jeu
+# est vérifiée, ajoutée à leaderboard.json, puis commentée et fermée.
+name: Classement
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write   # pousser leaderboard.json
+  issues: write     # commenter, étiqueter et fermer l'issue
+
+# un seul traitement à la fois, pour ne jamais perdre un score sur un conflit de push
+concurrency:
+  group: leaderboard
+  cancel-in-progress: false
+
+jobs:
+  score:
+    if: startsWith(github.event.issue.title, '[Score]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Vérifier le score et mettre à jour le classement
+        id: score
+        run: node scripts/leaderboard.mjs
+
+      - name: Enregistrer leaderboard.json
+        if: steps.score.outputs.status == 'ok'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add leaderboard.json
+          git commit -m "Classement : score de @${{ github.event.issue.user.login }}" || exit 0
+          for i in 1 2 3; do
+            git pull --rebase && git push && exit 0
+            sleep 5
+          done
+          exit 1
+
+      - name: Répondre et fermer l'issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE: ${{ github.event.issue.number }}
+          STATUS: ${{ steps.score.outputs.status }}
+        run: |
+          if [ -f "$RUNNER_TEMP/score-result.md" ]; then
+            gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/score-result.md"
+          fi
+          if [ "$STATUS" = "ok" ]; then LABEL="score"; REASON="completed"; else LABEL="score-refusé"; REASON="not planned"; fi
+          gh label create "$LABEL" --repo "$GITHUB_REPOSITORY" --color "1f6feb" 2>/dev/null || true
+          gh issue edit "$ISSUE" --repo "$GITHUB_REPOSITORY" --add-label "$LABEL" || true
+          gh issue close "$ISSUE" --repo "$GITHUB_REPOSITORY" --reason "$REASON"

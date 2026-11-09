@@ -155,6 +155,57 @@ function itemValue(it) {
 }
 
 // ===========================================================================
+// Bateaux : 5 niveaux, de la barque au navire-laboratoire
+// Pour passer au niveau suivant : acheter toutes ses pièces au chantier (boutique)
+// + trouver sa pièce spéciale en pêchant (elle ne tombe qu'une fois, et seulement
+// celle du prochain niveau). Le niveau du bateau débloque cannes et caisses : tiers ≤ 2 × niveau + 1.
+// ===========================================================================
+const BOATS = [
+  { level: 1, name: 'Barque en bois',
+    desc: "La vieille barque de votre grand-père. Elle prend un peu l'eau, mais elle flotte." },
+  { level: 2, name: 'Canot à moteur',
+    desc: 'Un petit moteur hors-bord, un pare-brise : on traverse enfin le lac sans ramer.',
+    parts: [
+      { id: 'b2_coque',   name: 'Coque renforcée',     price: 400 },
+      { id: 'b2_moteur',  name: 'Moteur hors-bord',    price: 700 },
+      { id: 'b2_parebrise', name: 'Pare-brise',        price: 300 },
+    ],
+    special: { id: 'b2_helice', name: 'Hélice ancienne', desc: "Une hélice de laiton couverte de coquillages. Elle tourne encore quand on souffle dessus." } },
+  { level: 3, name: 'Bateau de pêche',
+    desc: 'Une vraie cabine, un treuil et une cale : un bateau de pêcheur professionnel.',
+    parts: [
+      { id: 'b3_cabine',  name: 'Cabine de pilotage',  price: 2500 },
+      { id: 'b3_treuil',  name: 'Treuil',              price: 1800 },
+      { id: 'b3_cale',    name: 'Cale à poissons',     price: 2200 },
+      { id: 'b3_moteur',  name: 'Moteur inboard',      price: 3500 },
+    ],
+    special: { id: 'b3_gouvernail', name: "Gouvernail de l'épave", desc: "Arraché à une épave dont personne ne connaît le nom. Il tire toujours un peu vers le centre du lac." } },
+  { level: 4, name: 'Chalutier',
+    desc: "Coque d'acier, grue, projecteurs : de quoi pêcher jour et nuit.",
+    parts: [
+      { id: 'b4_coque',   name: "Coque en acier",      price: 9000 },
+      { id: 'b4_grue',    name: 'Grue de pêche',       price: 7000 },
+      { id: 'b4_projo',   name: 'Projecteurs',         price: 5000 },
+      { id: 'b4_radio',   name: 'Radio de bord',       price: 4000 },
+      { id: 'b4_moteurs', name: 'Double moteur',       price: 12000 },
+    ],
+    special: { id: 'b4_boussole', name: 'Boussole des profondeurs', desc: "Elle n'indique pas le nord. Elle indique le fond du lac. Toujours." } },
+  { level: 5, name: 'Navire Abysse-X',
+    desc: 'Un navire-laboratoire bourré de technologie. Le sonar voit des choses qui ne devraient pas exister.',
+    parts: [
+      { id: 'b5_sonar',   name: 'Sonar 3D',            price: 22000 },
+      { id: 'b5_coque',   name: 'Coque en carbone',    price: 30000 },
+      { id: 'b5_radar',   name: 'Radar',               price: 18000 },
+      { id: 'b5_labo',    name: 'Laboratoire embarqué', price: 25000 },
+      { id: 'b5_moteur',  name: 'Moteur hybride',      price: 35000 },
+      { id: 'b5_antenne', name: 'Antenne satellite',   price: 15000 },
+    ],
+    special: { id: 'b5_coeur', name: 'Cœur de Léviathan', desc: "Il bat. Lentement. Il alimente le navire mieux que n'importe quel moteur." } },
+];
+const BOAT_MAX = BOATS.length;
+const boatMaxTier = (level) => 2 * level + 1;
+
+// ===========================================================================
 // Temps et météo
 // ===========================================================================
 const DAY_LEN = 600;                        // un jour = 10 minutes de jeu

@@ -1319,6 +1319,27 @@ const ICON_SPRITES = {
     ],
     pal: { o: '#3a2408', y: '#f5d04a', Y: '#c99a1e', w: '#fff6c0', b: '#8a5a32', B: '#5e3a20' },
   },
+  boat: {
+    rows: [
+      '................',
+      '.......o........',
+      '.......oo.......',
+      '.......owo......',
+      '.......owwo.....',
+      '.......owwwo....',
+      '.......owwwwo...',
+      '.......owwwwwo..',
+      '.......oooooooo.',
+      '.......o........',
+      'ooooooooooooooo.',
+      'obbbbbbbbbbbbbo.',
+      '.oBBBBBBBBBBBo..',
+      '..oBBBBBBBBBo...',
+      '...ooooooooo....',
+      '.yy.yy..yy.yy...',
+    ],
+    pal: { o: '#1e140c', w: '#f4f0e6', b: '#c88c52', B: '#8a5a32', y: '#79c0ec' },
+  },
   crate: {
     rows: [
       '.......rr.......',
@@ -1592,6 +1613,26 @@ function buildCrateSprite(p) {
   const c = cv.getContext('2d');
   const W = 22, H = 16, ox = 1, oy = 1;
   const col = p.color, dark = shadeHex(col, 0.62), light = shadeHex(col, 1.3);
+  if (p.id === 'nasse') {                                // filet tendu sur une armature
+    pxRect(c, ox, oy, W, H, shadeHex(col, 0.55));
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if ((x + y) % 4 === 0 || (x - y + 64) % 4 === 0) pxRect(c, ox + x, oy + y, 1, 1, light);
+    for (const x of [0, W - 2]) pxRect(c, ox + x, oy, 2, H, '#5a5a62');
+    pxRect(c, ox, oy, W, 2, '#5a5a62');
+    pxRect(c, ox, oy + H - 2, W, 2, '#5a5a62');
+    pixelize(cv, '#1e140c');
+    return cv;
+  }
+  if (['acier', 'frigo', 'auto'].includes(p.id)) {        // caisses métalliques
+    pxRect(c, ox, oy, W, H, col);
+    pxRect(c, ox, oy, W, 2, light);
+    pxRect(c, ox, oy + H - 2, W, 2, dark);
+    for (let x = 3; x < W - 2; x += 4) pxRect(c, ox + x, oy + 3, 1, H - 6, shadeHex(col, 0.85));   // nervures
+    for (const [x, y] of [[1, 2], [W - 2, 2], [1, H - 3], [W - 2, H - 3]]) pxRect(c, ox + x, oy + y, 1, 1, '#d8e0e8');
+    if (p.id === 'frigo') { pxRect(c, ox, oy + 6, W, 3, '#3a72c8'); pxRect(c, ox + 8, oy + 6, 6, 3, '#e8f4ff'); }
+    if (p.id === 'auto') { pxRect(c, ox + 8, oy + 2, 6, 3, '#40e0f0'); pxRect(c, ox + 3, oy + 10, 16, 2, '#f5d04a'); }
+    pixelize(cv, '#1e140c');
+    return cv;
+  }
   if (p.id === 'osier') {
     pxRect(c, ox, oy, W, H, col);
     for (let y = 0; y < H; y++) {
@@ -1614,6 +1655,13 @@ function buildCrateSprite(p) {
       for (const x of [6, 15]) { pxRect(c, ox + x, oy, 2, H, '#9aa3ad'); pxRect(c, ox + x, oy, 1, H, '#c8d0d8'); }
     }
     if (p.id === 'profonde') for (const [x, y] of [[3, 3], [18, 3], [3, 12], [18, 12]]) pxRect(c, ox + x, oy + y, 1, 1, '#d8e0e8');
+    if (p.id === 'royale' || p.id === 'reliquaire') {        // cerclages dorés
+      for (const x of [6, 15]) { pxRect(c, ox + x, oy, 2, H, '#c8962e'); pxRect(c, ox + x, oy, 1, H, '#f5d04a'); }
+      pxRect(c, ox + 9, oy + 6, 4, 4, '#f5d04a');
+    }
+    if (p.id === 'reliquaire') {
+      for (const [x, y] of [[3, 3], [4, 4], [18, 11], [19, 12], [3, 12], [19, 3]]) pxRect(c, ox + x, oy + y, 1, 1, '#5ee0b0');
+    }
     if (p.id === 'maudite') {
       for (const [x, y] of [[5, 3], [6, 2], [7, 3], [12, 8], [13, 7], [14, 8], [13, 9], [8, 12], [9, 13]]) pxRect(c, ox + x, oy + y, 1, 1, '#e3b0ff');
       pxRect(c, ox + 16, oy + 3, 1, 3, '#e3b0ff');
