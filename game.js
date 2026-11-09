@@ -810,11 +810,113 @@ function fishVigor(f, abom) {
 const barSize = () => clamp(MG.barSize * (1 + mods().bar), 0.1, 0.5);
 const chestChance = () => clamp(MG.chestChance * (1 + mods().chest), 0, 0.6);
 
-function startReel() {
+// ---------------------------------------------------------------------------
+// Le Grand Ancien : il sort de l'eau, puis 3 barres d'affilée, de plus en plus dures
+// ---------------------------------------------------------------------------
+const CTH_RISE_TIME = 5.5;
+const CTH_PHASES = [
+  { vigor: 1.05, bar: 1.0,  fill: 1.0,  name: 'Il tire vers le fond…' },
+  { vigor: 1.4,  bar: 0.82, fill: 0.9,  name: 'Il se débat de plus belle !' },
+  { vigor: 1.8,  bar: 0.66, fill: 0.8,  name: 'Sa fureur fait trembler le lac !' },
+];
+// active : il est visible ; rise : 0 (sous l'eau) → 1 (dressé) ; target : vers où il bouge
+const cth = { active: false, rise: 0, target: 0, rage: 0, shake: 0, sprite: null, spriteT: -1 };
+
+function startCthulhuRise() {
+  cth.active = true;
+  cth.rise = 0;
+  cth.target = 1;
+  cth.rage = 0;
+  holding = false;
+  setState('rising');
+  say('Le lac se soulève… LE GRAND ANCIEN S\'ÉVEILLE !');
+  Sound.setMusic('epic', 1);
+  Sound.hook();
+  setTimeout(() => Sound.roar(), 900);
+}
+
+function cthulhuSink() {
+  cth.target = 0;
+}
+
+function updateCthulhu(dt) {
+  if (!cth.active) return;
+  cth.shake = Math.max(0, cth.shake - dt * 0.8);
+  if (inGame && game.state === 'rising') {
+    if (!$('overlay').hidden) return;
+    const p = clamp(game.t / (CTH_RISE_TIME - 0.6), 0, 1);
+    cth.rise = p * p * (3 - 2 * p);
+    cth.shake = Math.max(cth.shake, 0.3 + p * 0.7);
+    if (Math.random() < dt * 0.7) storm.flash = 0.8;
+  } else {
+    cth.rise += (cth.target - cth.rise) * Math.min(1, dt * (cth.target ? 2 : 0.55));
+    if (cth.target === 0 && cth.rise < 0.02) {
+      cth.active = false;
+      Sound.setMusic('calm');
+    }
+  }
+}
+
+// Sprite géant du Grand Ancien (redessiné ~15 fois par seconde pour animer les tentacules)
+const CTH_SPR = { w: 290, h: 190, ox: 145, oy: 78, scale: 1.7 };
+function cthSprite() {
+  const k = Math.floor(time * 15);
+  if (cth.sprite && cth.spriteT === k && cth.spriteRage === cth.rage) return cth.sprite;
+  if (!cth.sprite) cth.sprite = makeCanvas(CTH_SPR.w, CTH_SPR.h);
+  const cv = cth.sprite;
+  const c = cv.getContext('2d');
+  c.clearRect(0, 0, cv.width, cv.height);
+  c.save();
+  c.translate(CTH_SPR.ox, CTH_SPR.oy);
+  c.scale(CTH_SPR.scale, CTH_SPR.scale);
+  drawCthulhuVector(c, { t: time, rage: cth.rage });
+  c.restore();
+  pixelize(cv, '#06140c', '#3fd08a');
+  cth.spriteT = k;
+  cth.spriteRage = cth.rage;
+  return cv;
+}
+
+const CTH_WATERLINE = 160;
+function drawCthulhuRising() {
+  if (!cth.active || cth.rise <= 0.005) return;
+  const spr = cthSprite();
+  const x = Math.round(240 - CTH_SPR.ox + Math.sin(time * 0.7) * 4);
+  const top = Math.round(CTH_WATERLINE - CTH_SPR.h * 0.9 * cth.rise);
+  const above = CTH_WATERLINE - top;
+  ctx.drawImage(spr, 0, 0, CTH_SPR.w, above, x, top, CTH_SPR.w, above);           // hors de l'eau
+  const below = Math.min(CTH_SPR.h - above, LH - CTH_WATERLINE);
+  if (below > 0) {                                                                 // sous l'eau, en transparence
+    ctx.globalAlpha = 0.25;
+    ctx.drawImage(spr, 0, above, CTH_SPR.w, below, x, CTH_WATERLINE, CTH_SPR.w, below);
+    ctx.globalAlpha = 1;
+  }
+  // écume à la surface et eau qui ruisselle de son corps
+  ctx.globalAlpha = 0.85;
+  for (let i = 0; i < 60; i++) {
+    const fx = x + 30 + ((i * 37) % (CTH_SPR.w - 60));
+    const fy = CTH_WATERLINE + Math.round(Math.sin(time * 6 + i) * 1.5);
+    pxRect(ctx, fx, fy, 2 + (i % 3), 1, '#e8f6ff');
+  }
+  if (cth.rise > 0.25) {
+    for (let k = 0; k < 10; k++) {
+      const sx = x + 50 + ((k * 53) % (CTH_SPR.w - 100));
+      const span = Math.min(above, 70);
+      const sy = CTH_WATERLINE - span + ((time * 90 + k * 17) % span);
+      pxRect(ctx, sx, sy, 1, 4, '#bfe6ff');
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+function startReel(phase = 0) {
   const { f, abom } = game.fish;
-  const bs = barSize();
+  const cp = f.unique ? CTH_PHASES[phase] : null;
+  const bs = barSize() * (cp ? cp.bar : 1);
   game.mg = {
-    vigor: fishVigor(f, abom),
+    vigor: cp ? cp.vigor * (0.6 + 0.4 * rod().vigor) * (1 - mods().vigor * 0.5) : fishVigor(f, abom),
+    phase: cp ? phase : -1,
+    fillMul: cp ? cp.fill : 1,
     barSize: bs,
     bar: 0,
     barV: 0,
@@ -826,14 +928,32 @@ function startReel() {
     perfect: true,
     tick: 0,
     t: 0,
-    chest: Math.random() < chestChance()
+    chest: !cp && Math.random() < chestChance()
       ? { pos: rand(0.08, 0.92), appearAt: rand(0.8, 3), visible: false, progress: 0, got: false, inZone: false, flash: 0 }
       : null,
     from: { x: game.float.x, y: game.float.y },
   };
+  // une prise parfaite contre le Grand Ancien doit l'être sur les 3 phases
+  if (cp && phase > 0) game.mg.perfect = game.perfectSoFar;
   setState('reeling');
-  say('Maintenez le clic (ou Espace) pour faire monter la barre verte !');
+  say(cp ? `Phase ${phase + 1} / 3 — ${cp.name} Maintenez le clic !` : 'Maintenez le clic (ou Espace) pour faire monter la barre verte !');
   Sound.hook();
+}
+
+// Fin d'une phase du combat : pause, puis la suivante (plus dure)
+function nextCthulhuPhase() {
+  const m = game.mg;
+  game.perfectSoFar = m.perfect;
+  game.nextPhase = m.phase + 1;
+  holding = false;
+  cth.rage = game.nextPhase;
+  cth.shake = 1.2;
+  setState('phaseBreak');
+  say(`Phase ${m.phase + 1} réussie ! Il rugit… préparez-vous !`);
+  Sound.phase();
+  Sound.setMusic('epic', game.nextPhase + 1);
+  setTimeout(() => Sound.roar(), 300);
+  addRipple(240, 150, 4);
 }
 
 function updateReel(dt) {
@@ -859,7 +979,7 @@ function updateReel(dt) {
 
   m.inZone = m.fish >= m.bar && m.fish <= m.bar + m.barSize;
   if (!m.inZone) m.perfect = false;
-  m.progress += (m.inZone ? MG.fill : -MG.drain * (1 + m.vigor * 0.4)) * dt;
+  m.progress += (m.inZone ? MG.fill * m.fillMul : -MG.drain * (1 + m.vigor * 0.4)) * dt;
 
   // coffre : immobile, se récupère en gardant la barre dessus
   m.t += dt;
@@ -891,14 +1011,19 @@ function updateReel(dt) {
 
   if (m.progress >= 1) {
     holding = false;
-    strike();
+    if (m.phase >= 0 && m.phase < CTH_PHASES.length - 1) nextCthulhuPhase();
+    else strike();
   } else if (m.progress <= 0) {
     progress.stats.missed++;
     holding = false;
     setState('missed');
     checkAchievements({ type: 'escape', f: game.fish.f });
     const lostChest = m.chest?.got ? ' Le coffre est reparti avec lui.' : '';
-    say((game.fish.abom ? 'La chose a cassé la ligne et a disparu dans les profondeurs…' : "Le poisson s'est échappé…") + lostChest);
+    if (game.fish.f.unique) {
+      cthulhuSink();
+      cth.shake = 1;
+      say(`Le Grand Ancien a brisé la ligne à la phase ${m.phase + 1} / 3… Il replonge dans les abysses.`);
+    } else say((game.fish.abom ? 'La chose a cassé la ligne et a disparu dans les profondeurs…' : "Le poisson s'est échappé…") + lostChest);
     Sound.miss();
     writeSave();
   }
@@ -918,7 +1043,8 @@ function onAction() {
       writeSave();
       break;
     case 'bite':
-      startReel();
+      if (game.fish.f.unique) startCthulhuRise();
+      else startReel();
       break;
     // 'caught' : on ne passe le récapitulatif qu'avec le bouton « Continuer »
   }
@@ -927,6 +1053,7 @@ function onAction() {
 function continueAfterCatch() {
   if (game.state !== 'caught') return;
   $('catch-card').hidden = true;
+  if (cth.active) cthulhuSink();
   setState('idle');
   say('Cliquez pour lancer la ligne');
   Sound.click();
@@ -1109,6 +1236,8 @@ function update(dt) {
     if (r.a <= 0) ripples.splice(i, 1);
   }
 
+  updateCthulhu(dt);
+
   if (!inGame || !$('overlay').hidden) return;   // pause quand un panneau est ouvert
   game.t += dt;
   progress.stats.playTime += dt;
@@ -1152,6 +1281,15 @@ function update(dt) {
       break;
     case 'reeling':
       updateReel(dt);
+      break;
+    case 'rising':
+      // le Grand Ancien émerge : le lac bouillonne, tout tremble
+      if (Math.random() < dt * 14) addRipple(rand(120, 360), rand(140, 175), rand(1.5, 3.5));
+      if (game.t >= CTH_RISE_TIME) startReel(0);
+      break;
+    case 'phaseBreak':
+      if (Math.random() < dt * 8) addRipple(rand(150, 330), rand(140, 175), 2.5);
+      if (game.t >= 1.8) startReel(game.nextPhase);
       break;
     case 'missed':
     case 'early': {
@@ -1834,6 +1972,15 @@ function drawReelGauge() {
   const fishY = ty + th - Math.round(m.fish * th) - Math.floor(gaugeFish.height / 2);
   ctx.drawImage(gaugeFish, tx + Math.floor((tw - gaugeFish.width) / 2), clamp(fishY, ty - 1, ty + th - gaugeFish.height + 1));
 
+  // combat contre le Grand Ancien : 3 pastilles de phase à gauche de la jauge
+  if (m.phase >= 0) {
+    for (let i = 0; i < CTH_PHASES.length; i++) {
+      const col = i < m.phase ? '#5ad04a' : i === m.phase ? (Math.floor(time * 4) % 2 ? '#ffd84a' : '#ffb020') : '#3a2a1c';
+      pxRound(fx - 11, fy + 4 + i * 10, 7, 7, '#1e140c');
+      pxRound(fx - 10, fy + 5 + i * 10, 5, 5, col);
+    }
+  }
+
   // progression
   pxRect(ctx, px - 1, ty - 1, pw + 2, th + 2, '#1e140c');
   pxRect(ctx, px, ty, pw, th, '#3a2a1c');
@@ -1981,6 +2128,21 @@ function potAt(clientX, clientY) {
 }
 
 function render() {
+  // tremblement de l'écran pendant le combat contre le Grand Ancien
+  const fighting = cth.active && ['reeling', 'phaseBreak'].includes(game.state);
+  const amp = cth.shake * 3 + (fighting ? 0.4 + cth.rage * 0.5 : 0);
+  ctx.save();
+  if (amp > 0.2) {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, LW, LH);
+    ctx.translate(Math.round(rand(-amp, amp)), Math.round(rand(-amp, amp)));
+  }
+  renderScene();
+  ctx.restore();
+  drawReelGauge();
+}
+
+function renderScene() {
   const c = inGame ? corruption() : 0;
   const dark = wv.dark;
   const gloom = wv.overcast * 0.2 + wv.storm * 0.15;
@@ -2016,6 +2178,7 @@ function render() {
   }
   if (inGame) LAKE_EYES.forEach(drawLakeEye);
   drawWaterFx();
+  drawCthulhuRising();
   drawRipples();
   if (inGame) drawPots();
   drawBoat();
@@ -2042,11 +2205,10 @@ function render() {
     ctx.fillStyle = `rgba(40, 10, 60, ${c * 0.12})`;
     ctx.fillRect(0, 0, LW, LH);
   }
-  if (inGame && (game.fish?.abom || game.fish?.f.unique) && ['bite', 'reeling', 'caught'].includes(game.state)) {
-    ctx.fillStyle = game.fish.f.unique ? `rgba(10, 40, 25, ${0.35 + Math.sin(time * 2) * 0.1})` : `rgba(35, 8, 50, ${0.25 + Math.sin(time * 3) * 0.07})`;
+  if (inGame && (game.fish?.abom || game.fish?.f.unique) && ['bite', 'reeling', 'caught', 'rising', 'phaseBreak'].includes(game.state)) {
+    ctx.fillStyle = game.fish.f.unique ? `rgba(10, 40, 25, ${(cth.active ? 0.16 : 0.35) + Math.sin(time * 2) * 0.08})` : `rgba(35, 8, 50, ${0.25 + Math.sin(time * 3) * 0.07})`;
     ctx.fillRect(0, 0, LW, LH);
   }
-  drawReelGauge();
 }
 
 // ===========================================================================
@@ -2178,6 +2340,8 @@ function showMenu() {
   if (inGame) writeSave();
   inGame = false;
   Sound.rain(0);
+  cth.active = false;
+  Sound.setMusic('calm');
   $('menu').hidden = false;
   $('hud').hidden = true;
   $('catch-card').hidden = true;
@@ -2240,6 +2404,7 @@ function closePanel() {
   if (!openPanelName) return;
   $('overlay').hidden = true;
   $('message').hidden = false;
+  $('inv-tip').hidden = true;
   openPanelName = null;
   updateHud();
 }
@@ -2562,6 +2727,7 @@ function invSort(a, b) {
 }
 
 function renderInventory() {
+  hideInvTip();
   // emplacements équipés
   $('inv-slots').innerHTML = SLOTS.map((sl) => {
     const it = equippedItem(sl.id);
@@ -2587,21 +2753,27 @@ function renderInventory() {
     .map(([id, name, n]) => `<button class="btn ${invFilter === id ? 'active' : ''}" data-inv-filter="${id}">${name} (${n})</button>`).join('');
   $('inv-cap').textContent = `${progress.items.length} / ${ITEM_CAP}`;
 
-  // objets
-  const list = progress.items.filter((i) => invFilter === 'all' || itemDef(i).slot === invFilter).sort(invSort);
-  $('inv-list').innerHTML = list.length ? list.map((inst) => {
-    const it = itemDef(inst);
-    const eq = isEquipped(inst);
+  // objets : les exemplaires identiques sont regroupés en une seule pile
+  const stacks = [];
+  for (const inst of progress.items.filter((i) => invFilter === 'all' || itemDef(i).slot === invFilter).sort(invSort)) {
+    const s = stacks.find((x) => x.it.id === inst.id);
+    if (s) s.insts.push(inst); else stacks.push({ it: itemDef(inst), insts: [inst] });
+  }
+  $('inv-list').innerHTML = stacks.length ? stacks.map(({ it, insts }) => {
+    const eq = insts.some(isEquipped);
+    const free = insts.filter((i) => !isEquipped(i));
+    const value = itemValue(it);
     return `
       <div class="item inv-item ${eq ? 'equipped' : ''}" style="--rc:${RARITIES[it.tier].color}">
-        <img class="item-icon" src="${equipIcon(it)}" alt="">
+        <div class="inv-icon-wrap"><img class="item-icon" src="${equipIcon(it)}" alt="">${insts.length > 1 ? `<span class="inv-qty">×${insts.length}</span>` : ''}</div>
         <div class="info"><b style="color:${rarText(it.tier)}">${it.name}</b>
           <small>${SLOT_BY_ID[it.slot].name} · ${RARITIES[it.tier].name}${eq ? ' · <span class="inv-eq">Équipé</span>' : ''}</small>
           <span class="eff">${fxLines(it.fx).join(' · ')}</span>
           <small class="inv-desc">${it.desc}</small></div>
         <div class="actions">
-          ${eq ? `<button class="btn" data-unequip="${it.slot}">Retirer</button>` : `<button class="btn" data-equip-item="${inst.uid}">Équiper</button>`}
-          <button class="btn" data-sell-item="${inst.uid}" ${eq ? 'disabled title="Retirez-le d\'abord"' : ''}>Vendre ${fmtNum(itemValue(it))} ${coinImg()}</button>
+          ${eq ? `<button class="btn" data-unequip="${it.slot}">Retirer</button>` : `<button class="btn" data-equip-item="${free[0].uid}">Équiper</button>`}
+          <button class="btn" data-sell-item="${free[0]?.uid ?? ''}" ${free.length ? '' : 'disabled title="Retirez-le d\'abord"'}>Vendre ${fmtNum(value)} ${coinImg()}</button>
+          ${free.length > 1 ? `<button class="btn" data-sell-stack="${it.id}">Tout vendre (×${free.length}) ${fmtNum(value * free.length)} ${coinImg()}</button>` : ''}
         </div>
       </div>`;
   }).join('') : `<p class="inv-empty">${progress.items.length ? 'Aucun objet dans cette catégorie.' :
@@ -2624,8 +2796,11 @@ $('sheet-inv').addEventListener('click', (e) => {
   if (d.invFilter) { invFilter = d.invFilter; Sound.click(); }
   else if (d.equipItem) { equipItem(+d.equipItem); Sound.click(); }
   else if (d.unequip) { unequipSlot(d.unequip); Sound.click(); }
-  else if (d.sellItem) {
-    if (sellItems([+d.sellItem])) Sound.sell();
+  else if (d.sellItem || d.sellStack) {
+    const uids = d.sellStack
+      ? progress.items.filter((i) => i.id === d.sellStack && !isEquipped(i)).map((i) => i.uid)
+      : [+d.sellItem];
+    if (sellItems(uids)) Sound.sell();
     writeSave();
     updateHud();
     checkAchievements();
@@ -2640,6 +2815,35 @@ $('sheet-inv').addEventListener('click', (e) => {
   sellConfirm = false;
   renderSheet();
 });
+
+// Survol (ou focus clavier) du bouton « Équiper » : une info-bulle flottante montre la différence
+// de stats avec l'objet porté. Elle ne change pas la mise en page et ne capte pas la souris.
+function showInvTip(btn) {
+  const inst = itemByUid(+btn.dataset.equipItem);
+  if (!inst) return;
+  const it = itemDef(inst);
+  const cur = equippedItem(it.slot);
+  const lines = fxDiff(it.fx, cur?.fx);
+  const tip = $('inv-tip');
+  tip.innerHTML = `<div class="inv-diff-head">${cur ? `Comparé à : <b style="color:${rarText(cur.tier)}">${cur.name}</b>` : 'Emplacement vide'}</div>` +
+    (lines.length ? lines.map((l) => `<span class="${l.good ? 'up' : 'down'}">${l.good ? '▲' : '▼'} ${l.text}</span>`).join('') : '<span>Aucune différence</span>');
+  tip.hidden = false;
+  // à gauche du bouton, sans sortir de l'écran de jeu
+  const g = $('game').getBoundingClientRect();
+  const b = btn.getBoundingClientRect();
+  const tr = tip.getBoundingClientRect();
+  tip.style.left = `${Math.max(4, b.left - g.left - tr.width - 8)}px`;
+  tip.style.top = `${clamp(b.top - g.top + b.height / 2 - tr.height / 2, 4, g.height - tr.height - 4)}px`;
+}
+const hideInvTip = () => { $('inv-tip').hidden = true; };
+$('inv-list').addEventListener('mouseover', (e) => {
+  const b = e.target.closest('[data-equip-item]');
+  if (b) showInvTip(b); else hideInvTip();
+});
+$('inv-list').addEventListener('mouseleave', hideInvTip);
+$('inv-list').addEventListener('focusin', (e) => { const b = e.target.closest('[data-equip-item]'); if (b) showInvTip(b); });
+$('inv-list').addEventListener('focusout', hideInvTip);
+$('inv-list').addEventListener('scroll', hideInvTip);
 
 function renderSheetMain() {
   const r = rod();

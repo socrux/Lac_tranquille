@@ -194,14 +194,103 @@ const Sound = (() => {
     if (e % 2 === 1) noise({ t, dur: 0.05, vol: 0.012, type: 'highpass', freq: 7000, dest: musicBus });
   }
 
+  // ---------------------------------------------------------------------------
+  // Musique épique (combat contre le Grand Ancien) : ré mineur, 132 bpm, en doubles croches.
+  // intensity (1 → 3) ajoute des couches à chaque phase du combat.
+  // ---------------------------------------------------------------------------
+  const EPIC_BPM = 132;
+  const S16 = 60 / EPIC_BPM / 4;
+  const EPIC_CHORDS = [
+    { root: 38, tri: [62, 65, 69] },   // Dm
+    { root: 34, tri: [58, 62, 65] },   // Bb
+    { root: 36, tri: [60, 64, 67] },   // C
+    { root: 33, tri: [61, 64, 69] },   // A
+    { root: 38, tri: [62, 65, 69] },   // Dm
+    { root: 41, tri: [60, 65, 69] },   // F
+    { root: 34, tri: [58, 62, 65] },   // Bb
+    { root: 33, tri: [61, 64, 67] },   // A7
+  ];
+  // thème des cuivres : [double croche, note, durée en doubles croches]
+  const EPIC_THEME = [
+    [[0, 62, 6], [6, 65, 2], [8, 69, 8]],
+    [[0, 70, 6], [6, 69, 2], [8, 65, 8]],
+    [[0, 67, 4], [4, 69, 4], [8, 72, 6], [14, 70, 2]],
+    [[0, 69, 12], [12, 73, 4]],
+    [[0, 74, 6], [6, 72, 2], [8, 69, 8]],
+    [[0, 72, 6], [6, 69, 2], [8, 65, 8]],
+    [[0, 70, 4], [4, 69, 4], [8, 67, 4], [12, 65, 4]],
+    [[0, 64, 8], [8, 61, 8]],
+  ];
+  const TAIKO = [1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 1, 0, 0, 1, 0];
+  const EPIC_LOOP = EPIC_CHORDS.length * 16;
+  let mode = 'calm';
+  let intensity = 1;
+
+  function kick(t, vol, f0 = 120) {
+    tone({ t, f: f0, slide: 38, dur: 0.35, type: 'sine', vol, attack: 0.002, dest: musicBus });
+    noise({ t, dur: 0.06, vol: vol * 0.4, type: 'lowpass', freq: 900, dest: musicBus });
+  }
+
+  function playEpic(s, t) {
+    const bar = Math.floor(s / 16);
+    const e = s % 16;
+    const ch = EPIC_CHORDS[bar % EPIC_CHORDS.length];
+    const m = { dest: musicBus, sendTo: musicDelay };
+    // gong au début de la boucle
+    if (s === 0) {
+      for (const [r, g] of [[1, 0.12], [2.3, 0.05], [3.1, 0.04]]) tone({ ...m, t, f: 55 * r, dur: 4, type: 'sine', vol: g, attack: 0.01, send: 0.6 });
+      noise({ t, dur: 2.5, vol: 0.08, type: 'bandpass', freq: 400, q: 0.7, dest: musicBus, attack: 0.01 });
+    }
+    // chœur : accord tenu, voix douces
+    if (e === 0) {
+      for (const n of ch.tri) {
+        tone({ ...m, t, f: mtof(n), dur: S16 * 16, type: 'sine', vol: 0.03, attack: 0.25, send: 0.5 });
+        tone({ ...m, t, f: mtof(n) * 1.004, dur: S16 * 16, type: 'triangle', vol: 0.012, attack: 0.3 });
+      }
+      // basse : cuivre grave
+      tone({ ...m, t, f: mtof(ch.root), dur: S16 * 15, type: 'sawtooth', vol: 0.05, attack: 0.04 });
+    }
+    // ostinato des cordes (doubles croches)
+    const ost = [0, 0, 12, 0, 7, 0, 12, 7];
+    tone({ ...m, t, f: mtof(ch.root + 24 + ost[e % 8]), dur: S16 * 0.9, type: 'sawtooth', vol: 0.016 + intensity * 0.004, attack: 0.004 });
+    // tambours taiko
+    if (TAIKO[e]) kick(t, e === 0 ? 0.5 : 0.32);
+    if (intensity >= 2 && (e === 4 || e === 12)) noise({ t, dur: 0.18, vol: 0.12, type: 'bandpass', freq: 1800, q: 0.9, dest: musicBus });
+    if (intensity >= 3 && e % 2 === 1) noise({ t, dur: 0.04, vol: 0.03, type: 'highpass', freq: 8000, dest: musicBus });
+    // thème héroïque aux cuivres (dès la phase 2), doublé à l'octave en phase 3
+    if (intensity >= 2) {
+      for (const [off, n, len] of EPIC_THEME[bar % EPIC_THEME.length]) {
+        if (off !== e) continue;
+        tone({ ...m, t, f: mtof(n), dur: len * S16 * 0.95, type: 'square', vol: 0.03, attack: 0.03, send: 0.35 });
+        tone({ ...m, t, f: mtof(n - 12), dur: len * S16 * 0.95, type: 'sawtooth', vol: 0.022, attack: 0.04 });
+        if (intensity >= 3) tone({ ...m, t, f: mtof(n + 12), dur: len * S16 * 0.9, type: 'triangle', vol: 0.025, attack: 0.02, send: 0.4 });
+      }
+    }
+  }
+
   function schedule() {
     if (!ac) return;
     if (nextTime < ac.currentTime) nextTime = ac.currentTime + 0.05;
     while (nextTime < ac.currentTime + 0.3) {
-      playStep(step, nextTime);
-      nextTime += E8;
-      step = (step + 1) % LOOP;
+      if (mode === 'epic') {
+        playEpic(step, nextTime);
+        nextTime += S16;
+        step = (step + 1) % EPIC_LOOP;
+      } else {
+        playStep(step, nextTime);
+        nextTime += E8;
+        step = (step + 1) % LOOP;
+      }
     }
+  }
+
+  // Change de musique ('calm' ou 'epic'), avec un petit silence de transition
+  function setMusic(next, level = 1) {
+    intensity = level;
+    if (next === mode) return;
+    mode = next;
+    step = 0;
+    if (ac) nextTime = ac.currentTime + 0.4;
   }
 
   function startMusic() {
@@ -379,5 +468,22 @@ const Sound = (() => {
   };
   let rainGain = null;
 
-  return { init, set, settings, ...sfx };
+  // Rugissement du Grand Ancien : grondement grave et dissonant
+  sfx.roar = () => {
+    if (!ready()) return;
+    const t = now();
+    noise({ t, dur: 3.2, vol: 0.55, type: 'lowpass', freq: 500, freqTo: 90, attack: 0.3 });
+    for (const [f, v] of [[55, 0.12], [58.3, 0.1], [82, 0.07], [110, 0.05]]) {
+      tone({ t, f, slide: f * 0.7, dur: 3.2, type: 'sawtooth', vol: v, attack: 0.4, send: 0.5 });
+    }
+  };
+  // passage d'une phase du combat
+  sfx.phase = () => {
+    if (!ready()) return;
+    const t = now();
+    [62, 69, 74].forEach((n, i) => tone({ t: t + i * 0.09, f: mtof(n), dur: 0.6, type: 'square', vol: 0.05, send: 0.5 }));
+    kick(t, 0.5, 90);
+  };
+
+  return { init, set, settings, setMusic, ...sfx };
 })();

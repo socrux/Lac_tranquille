@@ -28,6 +28,45 @@ const FX = {
 };
 const fxLines = (fx) => Object.entries(fx).map(([k, v]) => FX[k].label(v));
 
+// Pour comparer deux objets : nom court, format d'une valeur, et sens (inv : l'effet est une réduction)
+const FX_CMP = {
+  gold:    { name: 'Or récolté',          fmt: pctTxt },
+  rare:    { name: 'Rareté',              fmt: pctTxt },
+  abom:    { name: 'Abomination',         fmt: (v) => `${numTxt(v * 100)} %` },
+  window:  { name: 'Réaction',            fmt: (v) => `${numTxt(v)} s` },
+  vigor:   { name: 'Vigueur des poissons', fmt: pctTxt, inv: true },
+  speed:   { name: 'Attente',             fmt: pctTxt, inv: true },
+  bar:     { name: 'Barre verte',         fmt: pctTxt },
+  luck:    { name: "Chance d'objet",      fmt: pctTxt },
+  chest:   { name: 'Coffres',             fmt: pctTxt },
+  crate:   { name: 'Vitesse des caisses', fmt: pctTxt },
+  perfect: { name: 'Bonus Perfect',       fmt: pctTxt },
+  legend:  { name: 'Légendaires',         mul: true },
+  abomMul: { name: 'Abominations',        mul: true },
+  cthulhu: { name: 'Grand Ancien',        mul: true },
+};
+
+// Différence d'effets si l'on remplace oldFx par newFx : [{ text, good }]
+function fxDiff(newFx, oldFx = {}) {
+  const keys = Object.keys(FX_CMP).filter((k) => k in newFx || k in oldFx);
+  const out = [];
+  for (const k of keys) {
+    const c = FX_CMP[k];
+    if (c.mul) {
+      const a = oldFx[k] ?? 1, b = newFx[k] ?? 1;
+      if (Math.abs(a - b) < 1e-9) continue;
+      out.push({ text: `${c.name} ×${numTxt(a)} → ×${numTxt(b)}`, good: b > a });
+      continue;
+    }
+    const d = (newFx[k] || 0) - (oldFx[k] || 0);
+    if (Math.abs(d) < 1e-9) continue;
+    // pour une réduction (attente, vigueur), un gain s'affiche « −x % »
+    const sign = (d > 0) !== !!c.inv ? '+' : '−';
+    out.push({ text: `${c.name} ${sign}${c.fmt(Math.abs(d))}`, good: d > 0 });
+  }
+  return out;
+}
+
 // ===========================================================================
 // Équipement
 // ===========================================================================
