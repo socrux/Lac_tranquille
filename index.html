@@ -21,7 +21,7 @@
         <div class="hud-stats box">
           <div class="hud-name" id="hud-name"></div>
           <div class="money"><img class="coin" data-icon="coin" alt=""> <span id="hud-money">0</span></div>
-          <div>Poissons : <span id="hud-count">0</span></div>
+          <div>Bourriche : <span id="hud-count">0</span></div>
           <div>Appât : <span id="hud-bait">—</span></div>
           <div class="admin-tag" id="hud-admin" hidden>MODE ADMIN</div>
         </div>
@@ -32,10 +32,9 @@
       </div>
       <div class="hud-buttons">
         <button class="hud-icon" data-open="book" title="Raccourci : C"><img data-icon="book" alt=""><span>Carnet</span></button>
-        <button class="hud-icon" data-open="shop" title="Raccourci : B"><img data-icon="shop" alt=""><span>Boutique</span></button>
+        <button class="hud-icon" data-open="village" id="btn-village" title="Raccourci : V"><img data-icon="village" alt=""><span>Village</span></button>
         <button class="hud-icon" data-open="crates" title="Raccourci : K"><img data-icon="crate" alt=""><span>Caisses</span></button>
         <button class="hud-icon" data-open="achievements" title="Raccourci : T"><img data-icon="trophy" alt=""><span>Succès</span></button>
-        <button class="hud-icon" data-open="curses" id="btn-curses" title="Raccourci : M" hidden><img data-icon="witch" alt=""><span>Sorcière</span></button>
         <button class="hud-icon" data-open="sheet" title="Raccourci : P"><img data-icon="profile" alt=""><span>Profil</span></button>
         <button class="hud-icon" data-open="options" title="Raccourci : O"><img data-icon="options" alt=""><span>Options</span></button>
         <button class="hud-icon" id="btn-menu" title="Raccourci : Échap"><img data-icon="menu" alt=""><span>Menu</span></button>
@@ -47,10 +46,22 @@
     <div id="toasts"></div>
     <div id="inv-tip" class="inv-diff" hidden></div>
 
+    <!-- Cinématique d'ouverture (le décor est dessiné dans le canvas du jeu) -->
+    <div id="cine" hidden>
+      <div class="cine-box box">
+        <p id="cine-text" aria-live="polite"></p>
+        <div class="cine-actions">
+          <span class="talk-step" id="cine-step"></span>
+          <button class="btn" id="cine-skip">Passer l'introduction</button>
+          <button class="btn" id="cine-next">Suivant ›</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Musique en cours -->
-    <div id="now-playing" class="box" title="Musique en cours">
+    <div id="now-playing" class="box" title="Musique en cours" role="button" tabindex="0">
       <canvas id="np-disc" class="px" width="16" height="16"></canvas>
-      <div class="np-text"><small>En écoute</small><span id="np-title"></span></div>
+      <div class="np-text"><small id="np-mode">En écoute</small><span id="np-title"></span></div>
     </div>
 
     <!-- Carte de prise -->
@@ -99,11 +110,14 @@
       <!-- Boutique -->
       <div id="panel-shop" class="panel-wrap panel box" hidden>
         <header>
-          <h2><img data-icon="shop" alt="">Boutique du port</h2>
+          <h2><img data-icon="shop" alt=""><span id="shop-title">Bric-à-brac</span></h2>
           <div class="money"><img class="coin" data-icon="coin" alt=""> <span id="shop-money">0</span></div>
-          <button class="btn close" data-close>Fermer</button>
+          <button class="btn close" data-open="village">‹ Village</button>
+          <button class="btn" data-close>Fermer</button>
         </header>
-        <div class="tabs">
+        <div class="npc-bar" id="shop-npc"></div>
+        <div class="tabs" id="shop-tabs">
+          <button class="btn tab" data-tab="stock">Objets du jour</button>
           <button class="btn tab active" data-tab="rods">Cannes à pêche</button>
           <button class="btn tab" data-tab="baits">Appâts</button>
           <button class="btn tab" data-tab="pots">Caisses</button>
@@ -119,6 +133,7 @@
           <div class="sheet-tabs">
             <button class="btn" data-stab="gear">Fiche</button>
             <button class="btn" data-stab="inv" title="Raccourci : I">Inventaire <span id="inv-count"></span></button>
+            <button class="btn" data-stab="fish">Bourriche <span id="fish-count"></span></button>
           </div>
           <button class="btn close" data-close>Fermer</button>
         </header>
@@ -137,6 +152,10 @@
             <div id="inv-list" class="inv-grid"></div>
             <div class="inv-foot"><button class="btn" id="inv-sell-commons"></button></div>
           </section>
+        </div>
+        <div class="sheet-fish" id="sheet-fish" hidden>
+          <p class="panel-hint" id="fish-hint"></p>
+          <div id="fish-list" class="catch-list"></div>
         </div>
         <div class="sheet" id="sheet-main">
           <section class="sheet-gear">
@@ -213,11 +232,87 @@
         </div>
       </div>
 
+      <!-- Village : plan cliquable -->
+      <div id="panel-village" class="panel-wrap panel box" hidden>
+        <header>
+          <h2><img data-icon="village" alt=""><span id="village-title"></span></h2>
+          <span class="village-hint" id="village-hint">Cliquez sur un bâtiment pour entrer.</span>
+          <button class="btn close" data-close>Retour au lac</button>
+        </header>
+        <div class="village-map">
+          <canvas id="village-canvas" class="px" width="480" height="270"></canvas>
+          <div id="village-spots"></div>
+        </div>
+      </div>
+
+      <!-- Conversation avec un habitant (présentation à la première visite) -->
+      <div id="panel-talk" class="panel-wrap panel box" hidden>
+        <div class="talk">
+          <img id="talk-portrait" class="talk-portrait" alt="">
+          <div class="talk-box">
+            <div class="talk-who"><b id="talk-name"></b><small id="talk-role"></small></div>
+            <p id="talk-text" aria-live="polite"></p>
+            <div class="talk-actions">
+              <span class="talk-step" id="talk-step"></span>
+              <button class="btn" id="talk-skip">Passer</button>
+              <button class="btn" id="talk-next">Suivant ›</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Banque -->
+      <div id="panel-bank" class="panel-wrap panel box" hidden>
+        <header>
+          <h2><img data-icon="coin" alt="">Banque</h2>
+          <button class="btn close" data-open="village">‹ Village</button>
+          <button class="btn" data-close>Fermer</button>
+        </header>
+        <div class="npc-bar" id="bank-npc"></div>
+        <div class="bank">
+          <section class="bank-acc">
+            <table id="bank-table"></table>
+            <label class="bank-field">Montant
+              <input id="bank-amount" type="number" min="1" step="1" inputmode="numeric" autocomplete="off">
+            </label>
+            <div class="chips">
+              <button class="btn" data-bank="deposit">Déposer</button>
+              <button class="btn" data-bank="withdraw">Retirer</button>
+              <button class="btn" data-bank="deposit-all">Tout déposer</button>
+              <button class="btn" data-bank="withdraw-all">Tout retirer</button>
+            </div>
+            <p class="bank-msg" id="bank-msg"></p>
+          </section>
+          <section class="bank-chart">
+            <h3>Cours du poisson</h3>
+            <canvas id="bank-chart" class="px" width="240" height="110"></canvas>
+            <p class="bank-note" id="bank-note"></p>
+          </section>
+        </div>
+      </div>
+
+      <!-- Poissonnerie -->
+      <div id="panel-fishmonger" class="panel-wrap panel box" hidden>
+        <header>
+          <h2><img data-icon="book" alt="">Poissonnerie</h2>
+          <div class="money" id="fm-index"></div>
+          <button class="btn close" data-open="village">‹ Village</button>
+          <button class="btn" data-close>Fermer</button>
+        </header>
+        <div class="npc-bar" id="fm-npc"></div>
+        <div id="fm-list" class="catch-list"></div>
+        <div class="fm-foot">
+          <span id="fm-total"></span>
+          <button class="btn" id="fm-sell-all">Tout vendre</button>
+        </div>
+      </div>
+
       <!-- Malédictions (Morgane des Brumes) -->
       <div id="panel-curses" class="panel-wrap panel box" hidden>
         <header>
           <h2><img data-icon="witch" alt="">Malédictions</h2>
-          <button class="btn close" data-close>Fermer</button>
+          <button class="btn close" data-open="village">‹ Village</button>
+          <button class="btn" data-close>Fermer</button>
         </header>
         <div class="witch-talk">
           <img class="witch-portrait" data-icon="witch" alt="">
@@ -258,10 +353,19 @@
           <span class="opt-val" id="opt-sfx-val"></span>
         </div>
         <div class="opt-row">
+          <label for="opt-track">Morceau</label>
+          <select id="opt-track" class="opt-select"></select>
+        </div>
+        <div class="opt-row">
+          <label class="check"><input type="checkbox" id="opt-loop"> Jouer ce morceau en boucle</label>
+        </div>
+        <p class="opt-hint" id="opt-track-hint"></p>
+        <div class="opt-row">
           <label class="check"><input type="checkbox" id="opt-mute"> Couper tout le son</label>
         </div>
         <div class="opt-row">
           <button class="btn" id="opt-fullscreen">Plein écran</button>
+          <button class="btn" id="opt-intro">Revoir l'introduction</button>
         </div>
         <div class="save-box">
           <h3>Sauvegarde</h3>
@@ -319,6 +423,7 @@
   <script src="pixel.js"></script>
   <script src="world.js"></script>
   <script src="character.js"></script>
+  <script src="village.js"></script>
   <script src="game.js"></script>
 </body>
 </html>

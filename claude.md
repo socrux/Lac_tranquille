@@ -19,6 +19,7 @@ leaderboard prévu (`leaderboard.json`).
 | `game.js`    | Cœur du jeu : données (poissons/crustacés/cannes/appâts/caisses), boucle de jeu, sauvegarde, progression (~16 pages, le plus gros fichier) |
 | `world.js`   | Monde : lac, météo, cycle jour/nuit, décor |
 | `character.js` | Personnalisation du personnage : palettes, `LOOK_OPTIONS`, `validLook()`, construction du sprite 18×21 |
+| `village.js` | Village : habitants `NPCS` (dialogues d'intro/salutations), économie (`MARKET`, `BANK`, bric-à-brac, bourriche), textes de la cinématique `INTRO_SCENES`, décors pixel art. Chargé après `character.js`, avant `game.js` |
 | `pixel.js`   | Utilitaires pixel art : `makeCanvas`, `pxRect`, `pxDisk`, `shadeHex`, `pixelize` |
 | `audio.js`   | Musique et SFX 100 % synthétisés (Web Audio API) via module IIFE `Sound` |
 | `style.css`  | Styles de l'UI |

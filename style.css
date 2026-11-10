@@ -773,3 +773,89 @@ img.ghost { opacity: 0.45; }
 .hw-curse { display: flex; align-items: center; gap: 0.3em; font-weight: 600; }
 .hw-curse img { width: 1.2em; height: 1.2em; }
 @media (max-aspect-ratio: 4/3) { .curse-list { grid-template-columns: 1fr; } }
+
+/* ---------- Village : plan cliquable ---------- */
+.village-hint { flex: 1; font-size: 0.9em; opacity: 0.85; }
+.village-map {
+  position: relative; flex: 1; min-height: 0; aspect-ratio: 16 / 9; max-width: 100%; margin: 0 auto;
+  border: 0.14em solid #141c50; border-radius: 0.3em; overflow: hidden;
+}
+.village-map canvas { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; }
+.v-spot {
+  position: absolute; padding: 0; background: transparent; border: 0.14em solid transparent; border-radius: 0.3em;
+  display: flex; align-items: flex-start; justify-content: center; transition: border-color 0.12s, background 0.12s;
+}
+.v-spot:hover, .v-spot:focus-visible { border-color: #ffd84a; background: rgba(255, 216, 74, 0.12); outline: none; }
+.v-label {
+  margin-top: -0.4em; padding: 0.1em 0.5em; font-size: 0.85em; white-space: nowrap;
+  background: rgba(20, 28, 80, 0.88); border: 0.1em solid #8394ec; border-radius: 0.25em;
+}
+.v-spot.locked .v-label { opacity: 0.6; }
+.v-spot.locked:hover { border-color: #8a8a90; background: rgba(0, 0, 0, 0.15); }
+.v-badge { font-style: normal; font-size: 0.85em; color: #1e140c; text-shadow: none; background: #ffd84a; border-radius: 0.25em; padding: 0 0.3em; margin-left: 0.2em; }
+#btn-village.notify { box-shadow: inset 0 0 0 0.12em #ffd84a, 0 0 0.8em rgba(255, 216, 74, 0.7); }
+
+/* ---------- Habitants : salutation et dialogue ---------- */
+.npc-bar { display: flex; align-items: center; gap: 0.8em; margin-bottom: 0.6em; padding: 0.4em 0.7em;
+  background: rgba(20, 28, 80, 0.55); border-radius: 0.3em; }
+.npc-bar:empty { display: none; }
+.npc-bar img { width: 3.2em; height: 3.2em; flex: none; image-rendering: pixelated; }
+.npc-bar small { opacity: 0.75; }
+.npc-bar p { margin: 0.15em 0 0; font-style: italic; color: #f3e6c8; }
+/* le dialogue laisse voir le lac (assombri) au-dessus de la boîte de texte */
+#panel-talk { justify-content: flex-end; background: none; border: none; box-shadow: none; }
+.talk { display: flex; align-items: flex-end; gap: 1.2em; }
+.talk-portrait { width: 9em; height: 9em; flex: none; image-rendering: pixelated; filter: drop-shadow(0 0.3em 0 rgba(0, 0, 0, 0.4)); }
+.talk-box { flex: 1; padding: 0.8em 1em; background: rgba(14, 20, 56, 0.92); border: 0.14em solid #8394ec; border-radius: 0.35em; cursor: pointer; }
+.talk-who b { font-size: 1.3em; color: #ffe56a; }
+.talk-who small { margin-left: 0.6em; opacity: 0.75; }
+#talk-text, #cine-text { min-height: 3.6em; margin: 0.4em 0 0.6em; font-size: 1.2em; line-height: 1.4; }
+.talk-actions, .cine-actions { display: flex; align-items: center; gap: 0.5em; justify-content: flex-end; }
+.talk-step { flex: 1; font-size: 0.85em; opacity: 0.6; }
+
+/* ---------- Banque ---------- */
+.bank { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 1.2em; overflow-y: auto; }
+#bank-table { width: 100%; border-collapse: collapse; font-size: 1.05em; }
+#bank-table td { padding: 0.25em 0.2em; border-bottom: 0.08em solid rgba(131, 148, 236, 0.3); }
+#bank-table td:last-child { text-align: right; }
+#bank-table img, .bank-chart img { width: 1em; height: 1em; vertical-align: -0.12em; }
+.bank .up { color: #7cf08a; } .bank .down { color: #ff7a6a; }
+.bank-field { display: flex; align-items: center; gap: 0.6em; margin: 0.8em 0 0.4em; }
+.bank-field input {
+  flex: 1; font-family: inherit; font-size: 1.05em; padding: 0.25em 0.5em; color: #fff;
+  background: #1e2a6a; border: 0.12em solid #8394ec; border-radius: 0.25em;
+}
+.bank-msg { min-height: 1.2em; color: #ffe56a; font-size: 0.9em; }
+.bank-chart h3 { margin: 0 0 0.4em; color: #ffe56a; }
+#bank-chart { width: 100%; image-rendering: pixelated; border: 0.12em solid #141c50; border-radius: 0.25em; }
+.bank-note { font-size: 0.85em; opacity: 0.85; }
+
+/* ---------- Bourriche et poissonnerie ---------- */
+.catch-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 0.4em; padding-right: 0.3em; }
+.catch-row .money { white-space: nowrap; font-size: 1.1em; }
+.catch-row.abom { background: rgba(60, 20, 80, 0.85); box-shadow: inset 0 0 0 0.12em #a35ad8; }
+.catch-canvas { width: 5em; flex: none; image-rendering: pixelated; }
+.fm-foot { display: flex; align-items: center; gap: 1em; padding-top: 0.6em; }
+.fm-foot span { flex: 1; }
+.fm-foot img { width: 1em; height: 1em; vertical-align: -0.12em; }
+.sheet-fish { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.sheet-fish .panel-hint img { width: 1em; height: 1em; vertical-align: -0.12em; }
+.cc-keep { display: block; font-size: 0.65em; color: #c8d4ff; margin-top: 0.2em; }
+.cc-keep.full { color: #ffb0a0; font-size: 0.75em; }
+#hud-count.full { color: #ff9a8a; }
+.stock-head { grid-column: 1 / -1; margin: 0 0 0.3em; font-size: 0.9em; opacity: 0.85; }
+
+/* ---------- Choix de la musique ---------- */
+.opt-select {
+  flex: 1; font-family: inherit; font-size: 0.9em; padding: 0.2em 0.4em; color: #fff;
+  background: #1e2a6a; border: 0.12em solid #8394ec; border-radius: 0.25em;
+}
+.opt-hint { margin: -0.4em 0 0.6em; font-size: 0.85em; opacity: 0.8; }
+#opt-loop:disabled + * , .check:has(#opt-loop:disabled) { opacity: 0.5; }
+#now-playing { cursor: pointer; }
+#now-playing:hover { box-shadow: inset 0 0 0 0.14em #ffd84a, 0 0.3em 0 rgba(0, 0, 0, 0.35); }
+.lb-go { display: inline-block; margin: 0.2em 0.3em; color: #ffe56a; text-decoration: none; }
+
+/* ---------- Cinématique d'ouverture ---------- */
+#cine { position: absolute; inset: 0; z-index: 8; display: flex; align-items: flex-end; padding: 1.2em; pointer-events: auto; }
+.cine-box { width: 100%; padding: 0.8em 1.1em; cursor: pointer; background: rgba(8, 12, 36, 0.86); }

@@ -14,7 +14,7 @@ const BOAT_Y = 222;          // haut de la coque
 const $ = (id) => document.getElementById(id);
 
 // Version du jeu : à mettre à jour à chaque pull request (MAJEUR.MINEUR.CORRECTIF)
-const GAME_VERSION = '1.2.1';
+const GAME_VERSION = '1.3.0';
 
 // ===========================================================================
 // Données
@@ -324,10 +324,18 @@ function emptyProgress() {
     weather: null,          // { id, until } (until : en secondes de jeu)
     // malédictions (après la première abomination) : offres du jour, malédiction acceptée, choix fait
     curse: { day: 0, offers: [], active: null, decided: false },
+    // village : prises gardées dans la bourriche (vendues au poissonnier), argent placé à la banque,
+    // cours du poisson (historique quotidien), stock du jour du bric-à-brac, habitants déjà rencontrés
+    catches: [],            // { uid, id, abom, w (kg), v (valeur de base en pièces) }
+    bank: 0,
+    market: { day: 0, index: MARKET.base, history: [] },
+    bric: { day: 0, stock: [], sold: [] },
+    met: {},
     stats: {
       casts: 0, caught: 0, missed: 0, early: 0, aboms: 0, perfects: 0, chests: 0,
       crusts: 0, potsCollected: 0, cthulhu: 0, earned: 0, spent: 0, playTime: 0, best: null,
       itemsFound: 0, itemsSold: 0, itemsEarned: 0, curses: 0,
+      fishSold: 0, released: 0, interest: 0,
     },
   };
 }
@@ -337,6 +345,7 @@ function emptyProgress() {
 // sur le modèle de validLook(). Une valeur invalide est remplacée par la valeur par défaut.
 const SAVE_LIM = { money: 1e10, count: 1e7, bait: 1e5, pots: 50, time: 1e9 };
 const SAVE_FILE_MAX = 1024 * 1024;              // taille maximale d'un fichier de sauvegarde importé (1 Mo)
+const KEEPNET_SAVE_MAX = 200;                   // borne de lecture de la bourriche (cale maximale : 100)
 const isObj = (x) => !!x && typeof x === 'object' && !Array.isArray(x);
 const vObj = (x) => (isObj(x) ? x : {});
 const vArr = (x) => (Array.isArray(x) ? x : []);
@@ -445,6 +454,28 @@ function validProgress(s) {
     active: hasOwn(CURSE_BY_ID, cu.active) ? cu.active : null,
     decided: cu.decided === true,
   };
+  // bourriche : prises connues (le Grand Ancien n'a pas de version abomination), poids et valeur bornés
+  const seenCatch = new Set();
+  p.catches = vArr(s.catches).slice(0, KEEPNET_SAVE_MAX).map((c) => {
+    if (!isObj(c) || !Number.isSafeInteger(c.uid) || c.uid <= 0 || seenCatch.has(c.uid)) return null;
+    const f = hasOwn(FISH_BY_ID, c.id) ? FISH_BY_ID[c.id] : hasOwn(CRUST_BY_ID, c.id) ? CRUST_BY_ID[c.id] : null;
+    if (!f) return null;
+    seenCatch.add(c.uid);
+    return { uid: c.uid, id: f.id, abom: c.abom === true && !f.unique, w: vNum(c.w, f.kg[1] * 3), v: vInt(c.v, f.value * 100) };
+  }).filter(Boolean);
+  p.itemSeq = p.catches.reduce((m, c) => Math.max(m, c.uid), p.itemSeq);
+  p.bank = vInt(s.bank, SAVE_LIM.money);
+  const mk = vObj(s.market);
+  p.market = {
+    day: vInt(mk.day, SAVE_LIM.count),
+    index: typeof mk.index === 'number' && Number.isFinite(mk.index) ? clamp(mk.index, MARKET.min, MARKET.max) : MARKET.base,
+    history: vArr(mk.history).slice(-MARKET.history).map((x) => vNum(x, MARKET.max, MARKET.min)),
+  };
+  const br = vObj(s.bric);
+  const stock = vArr(br.stock).filter((id) => hasOwn(ITEM_BY_ID, id)).slice(0, 16);
+  p.bric = { day: vInt(br.day, SAVE_LIM.count), stock, sold: stock.map((_, i) => vArr(br.sold)[i] === true) };
+  const met = vObj(s.met);
+  for (const n of NPCS) if (met[n.id] === true) p.met[n.id] = true;
   // statistiques : uniquement les compteurs connus, nombres finis et bornés
   const st = vObj(s.stats);
   for (const k of Object.keys(p.stats)) {
@@ -707,7 +738,23 @@ function rollCatch(f, abom) {
   return { size: Math.round(size * 10) / 10, weight: Math.round(weight * 1000) / 1000, money };
 }
 
-// Enregistre une prise (poisson ou crustacé) : carnet, statistiques, pièces
+// --- Bourriche : les prises ne sont plus vendues automatiquement, elles attendent le poissonnier
+const keepnetSize = () => keepnetCap(boatLevel());
+const keepnetFull = () => progress.catches.length >= keepnetSize();
+// Garde une prise dans la bourriche ; si elle est pleine, la prise est relâchée (rien n'est vendu)
+function keepCatch(f, abom, c) {
+  if (keepnetFull()) {
+    progress.stats.released = (progress.stats.released || 0) + 1;
+    return false;
+  }
+  progress.catches.push({ uid: ++progress.itemSeq, id: f.id, abom: !!abom && !f.unique, w: c.weight, v: Math.max(1, Math.round(c.money)) });
+  return true;
+}
+// Prix de rachat du poissonnier : valeur de la prise × cours du poisson du jour
+const fishPrice = (c) => Math.max(1, Math.round((c.v * progress.market.index) / MARKET.base));
+const keepnetValue = () => progress.catches.reduce((s, c) => s + fishPrice(c), 0);
+
+// Enregistre une prise (poisson ou crustacé) : carnet et statistiques (la vente se fait au village)
 function registerCatch(f, abom, c) {
   const key = dexKey(f, abom);
   const entry = progress.dex[key];
@@ -723,8 +770,6 @@ function registerCatch(f, abom, c) {
   };
   const st = progress.stats;
   if (abom) st.aboms++;
-  st.earned += c.money;
-  progress.money += c.money;
   if (abom && st.aboms === 1) unlockCurses();
   return flags;
 }
@@ -739,9 +784,11 @@ function strike() {
   const bonus = perfect ? Math.max(1, Math.round(c.money * MG.perfectBonus * (1 + M.perfect))) : 0;
   const loot = m?.chest?.got ? rollChestLoot() : null;
   const flags = registerCatch(f, abom, c);
+  // le bonus « Perfect » augmente la valeur de la prise (versée à la vente)
+  const stored = keepCatch(f, abom, { ...c, money: c.money + bonus });
   const drop = Math.random() < itemDropChance(f.tier, abom, 'fish') ? addItem(rollItem(f.tier, abom)) : null;
   const part = rollSpecialPart(f.tier, 'fish');
-  game.catch = { f, abom, ...c, perfect, bonus, loot, drop, part, goldBonus: M.gold, ...flags };
+  game.catch = { f, abom, ...c, perfect, bonus, loot, drop, part, stored, goldBonus: M.gold, ...flags };
   if (f.unique) progress.stats.cthulhu = (progress.stats.cthulhu || 0) + 1;
   if (loot) {
     progress.baits[loot.bait.id] = (progress.baits[loot.bait.id] || 0) + loot.qty;
@@ -749,8 +796,6 @@ function strike() {
   }
   if (perfect) {
     progress.stats.perfects = (progress.stats.perfects || 0) + 1;
-    progress.money += bonus;
-    progress.stats.earned += bonus;
     showPerfect();
   }
   const st = progress.stats;
@@ -940,7 +985,8 @@ function collectPot(slot) {
     if (Math.random() < itemDropChance(cr.tier, it.abom, 'pot')) drops.push(addItem(rollItem(cr.tier, it.abom)));
     const part = rollSpecialPart(cr.tier, 'pot');
     if (part) { lastPotPart = part; onSpecialPartFound(part); }
-    return { cr, ...c, ...registerCatch(cr, it.abom, c) };
+    const flags = registerCatch(cr, it.abom, c);
+    return { cr, ...c, ...flags, stored: keepCatch(cr, it.abom, c) };
   });
   progress.stats.crusts = (progress.stats.crusts || 0) + results.length;
   progress.stats.potsCollected = (progress.stats.potsCollected || 0) + 1;
@@ -1313,13 +1359,76 @@ function setWeather(id, announce = true) {
   if (openPanelName === 'sheet') renderSheet();
 }
 
+// ---------------------------------------------------------------------------
+// Économie du village : un pas de marché, les intérêts et le stock du bric-à-brac par jour
+// ---------------------------------------------------------------------------
+// Bruit gaussien (Box-Muller) pour le cours du poisson
+const gauss = () => Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(2 * Math.PI * Math.random());
+
+function marketStep() {
+  const mk = progress.market;
+  const drift = MARKET.revert * (MARKET.base - mk.index);
+  mk.index = clamp(Math.round((mk.index + drift + mk.index * MARKET.vol * gauss()) * 10) / 10, MARKET.min, MARKET.max);
+  mk.history.push(mk.index);
+  if (mk.history.length > MARKET.history) mk.history.splice(0, mk.history.length - MARKET.history);
+}
+
+function rollBricStock() {
+  const lvl = boatLevel();
+  const pool = ITEMS.filter((it) => it.tier <= bricMaxTier(lvl));
+  const w = pool.map((it) => ITEM_TIER_WEIGHT[it.tier] * (1 + it.tier * 0.4 * (lvl - 1)));
+  const stock = [];
+  for (let n = bricStockSize(lvl); n > 0 && pool.length; n--) {
+    let r = Math.random() * w.reduce((s, x) => s + x, 0);
+    let i = 0;
+    while (i < pool.length - 1 && (r -= w[i]) > 0) i++;
+    stock.push(pool[i].id);
+    pool.splice(i, 1);                     // pas de doublon dans le stock du jour
+    w.splice(i, 1);
+  }
+  progress.bric = { day: dayOf(progress.clock), stock, sold: stock.map(() => false) };
+}
+
+// Rattrape les jours écoulés (cours, intérêts, stock). announce : notification des intérêts.
+function catchUpDays(announce) {
+  const today = dayOf(progress.clock);
+  const mk = progress.market;
+  if (!mk.day) {                           // nouvelle partie ou sauvegarde d'avant le village
+    mk.day = today;
+    if (!mk.history.length) mk.history.push(mk.index);
+  }
+  let interest = 0;
+  const days = Math.min(today - mk.day, 60);
+  for (let d = 0; d < days; d++) {
+    marketStep();
+    const gain = Math.min(BANK.maxInterest, Math.floor(progress.bank * bankRate(mk.index)));
+    progress.bank = Math.min(SAVE_LIM.money, progress.bank + gain);
+    interest += gain;
+  }
+  mk.day = today;
+  if (interest > 0) {
+    progress.stats.interest = (progress.stats.interest || 0) + interest;
+    if (announce) {
+      pushToast({ icon: ICONS.coin, label: `Banque · ${NPC_BY_ID.bank.name}`, title: `Intérêts : +${fmtNum(interest)}`,
+        sub: `Cours du poisson : ${fmtIndex(mk.index)}`, sound: () => Sound.buy() });
+    }
+  }
+  if (progress.bric.day !== today) rollBricStock();
+  if (openPanelName === 'bank') renderBank();
+  if (openPanelName === 'fishmonger') renderFishmonger();
+}
+const fmtIndex = (x) => String(Math.round(x * 10) / 10).replace('.', ',');
+
 function updateClock(dt) {
   const prev = progress.clock;
   progress.clock += dt;
   // le temps de jeu suit l'horloge (panneaux ouverts compris) : les jours restent cohérents avec
   // le temps joué, ce que vérifie le classement (scripts/leaderboard.mjs)
   progress.stats.playTime += dt;
-  if (dayOf(prev) !== dayOf(progress.clock)) refreshCurseDay(true);
+  if (dayOf(prev) !== dayOf(progress.clock)) {
+    refreshCurseDay(true);
+    catchUpDays(true);
+  }
   const wasNight = isNightHour(hourOf(prev));
   const night = isNightHour(hourOf(progress.clock));
   if (night !== wasNight) {
@@ -2835,9 +2944,14 @@ function showCatchCard() {
   $('cc-rarity').style.color = r.abom ? '#d9a0ff' : r.f.unique ? '#6af0b0' : rar.color;
   $('cc-name').textContent = fishName(r.f, r.abom);
   $('cc-dims').textContent = `${fmtCm(r.size)}  ·  ${fmtKg(r.weight)}`;
-  $('cc-money').innerHTML = `+ ${fmtNum(r.money)} ${coinImg()}` +
-    (r.goldBonus > 0 ? ` <span class="cc-perfect">(or +${Math.round(r.goldBonus * 100)} %)</span>` : '') +
-    (r.perfect ? ` <span class="cc-perfect">(+${fmtNum(r.bonus)} Perfect)</span>` : '');
+  // la prise part dans la bourriche (vendue au poissonnier), ou est relâchée si la bourriche est pleine
+  const value = Math.round(((r.money + r.bonus) * progress.market.index) / MARKET.base);
+  $('cc-money').innerHTML = r.stored
+    ? `Valeur : ${fmtNum(value)} ${coinImg()}` +
+      (r.goldBonus > 0 ? ` <span class="cc-perfect">(or +${Math.round(r.goldBonus * 100)} %)</span>` : '') +
+      (r.perfect ? ` <span class="cc-perfect">(+${fmtNum(r.bonus)} Perfect)</span>` : '') +
+      `<small class="cc-keep">Dans la bourriche (${progress.catches.length} / ${keepnetSize()}) · à vendre au poissonnier</small>`
+    : `<small class="cc-keep full">Bourriche pleine (${keepnetSize()} / ${keepnetSize()}) : vous relâchez la prise. Passez voir le poissonnier au village !</small>`;
   $('cc-loot').hidden = !r.loot;
   if (r.loot) {
     $('cc-loot').innerHTML = `<img src="${itemIcon('bait', r.loot.bait)}" alt=""> Coffre : ${r.loot.qty} × ${r.loot.bait.name}`;
@@ -2886,7 +3000,8 @@ function updateHud() {
   $('hud-admin').hidden = !admin.on;
   $('hud-name').textContent = progress.look?.name || '';
   $('hud-money').textContent = fmtNum(progress.money);
-  $('hud-count').textContent = fmtNum(progress.stats.caught);
+  $('hud-count').textContent = `${progress.catches.length} / ${keepnetSize()}`;
+  $('hud-count').classList.toggle('full', keepnetFull());
   const b = bait();
   $('hud-bait').textContent = b.pack === 0 ? b.name : `${b.name} (${progress.baits[b.id] || 0})`;
   updateCurseButton();
@@ -2953,6 +3068,7 @@ function enterGame() {
   refreshBoat();
   if (!progress.weather) setWeather('clair', false);
   refreshCurseDay(false);
+  catchUpDays(false);                              // cours du poisson, intérêts, stock du bric-à-brac
   curseVis.id = activeCurse()?.id || null;
   curseVis.a = curseVis.id ? 1 : 0;
   // pas de transition visuelle en arrivant : le ciel est directement à la bonne heure et à la bonne météo
@@ -3079,14 +3195,23 @@ $('char-ok').addEventListener('click', () => {
     return;
   }
   const look = validLook({ ...charDraft, name: name.normalize('NFC') });
-  if (charMode === 'create') {
+  const isNew = charMode === 'create';
+  if (isNew) {
     clearSave();
     progress = emptyProgress();
   }
   progress.look = look;
   writeSave();
   closePanel();
-  enterGame();
+  // nouvelle partie : la cinématique d'ouverture (retour au village natal), puis le lac
+  if (isNew) {
+    fisherSpriteCache = null;
+    startIntro(() => {
+      enterGame();
+      pushToast({ icon: ICONS.village, label: 'Bienvenue à', title: VILLAGE_NAME,
+        sub: 'Le village vous attend (touche V) : ses habitants ont hâte de vous revoir.', sound: () => Sound.chestAppear() });
+    });
+  } else enterGame();
 });
 $('char-cancel').addEventListener('click', () => {
   Sound.click();
@@ -3206,6 +3331,7 @@ function renderLeaderboard() {
   $('lb-updated').textContent = lbData?.updated ? `Mis à jour le ${new Date(lbData.updated).toLocaleString('fr-FR')}` : '';
   const btn = $('lb-submit');
   btn.disabled = !inGame || admin.on;
+  if ($('lb-hint').querySelector('.lb-go')) return;          // ne pas effacer le lien d'envoi déjà préparé
   $('lb-hint').textContent = !inGame ? 'Lancez une partie pour envoyer votre score.'
     : admin.on ? 'Les scores ne peuvent pas être envoyés en mode admin.'
     : 'L\'envoi ouvre une page GitHub pré-remplie : il suffit de cliquer sur « Submit new issue » (un compte GitHub est nécessaire).';
@@ -3232,9 +3358,19 @@ function submitScore() {
     '```',
   ].join('\n');
   const url = `https://github.com/${LEADERBOARD.repo}/issues/new?title=${encodeURIComponent(`[Score] ${s.name}`)}&body=${encodeURIComponent(body)}`;
-  window.open(url, '_blank', 'noopener');
-  $('lb-hint').textContent = 'Page GitHub ouverte : validez l\'issue, puis revenez dans quelques minutes et cliquez sur « Actualiser ».';
-  Sound.click();
+  // Un vrai lien cliqué par le joueur, plutôt que window.open() : un lien n'est jamais bloqué comme
+  // une fenêtre surgissante, et window.open(…, 'noopener') renvoie toujours null (blocage indétectable).
+  const hint = $('lb-hint');
+  hint.textContent = '';
+  const a = document.createElement('a');
+  a.href = url;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  a.className = 'btn lb-go';
+  a.textContent = 'Ouvrir GitHub pour envoyer mon score ›';
+  hint.append('Score prêt ! ', a, ' Puis, sur GitHub : connectez-vous, cliquez sur « Create » (ou « Submit new issue ») et revenez dans quelques minutes.');
+  a.addEventListener('click', () => { Sound.click(); });
+  a.focus();
 }
 
 $('lb-tabs').addEventListener('click', (e) => {
@@ -3290,7 +3426,7 @@ function refreshCurseDay(announce) {
 function unlockCurses() {
   refreshCurseDay(false);
   pushToast({ icon: ICONS.witch, label: 'Une silhouette sur la rive', title: WITCH.name,
-    sub: 'Une sorcière vous fait signe. Elle propose des malédictions (touche M).', sound: () => Sound.curse() });
+    sub: 'Une lumière verte brille dans la cabane de la sorcière, au village (touche M).', sound: () => Sound.curse() });
 }
 
 function acceptCurse(id) {
@@ -3351,17 +3487,404 @@ $('curse-list').addEventListener('click', (e) => {
 });
 $('curse-refuse').addEventListener('click', () => { refuseCurses(); renderCurses(); });
 
+// Pastille sur le bouton Village : malédictions à choisir, ou un habitant pas encore rencontré
 function updateCurseButton() {
-  const btn = $('btn-curses');
-  btn.hidden = !cursesUnlocked();
-  btn.classList.toggle('notify', curseNotify());
+  const unmet = NPCS.some((n) => !progress.met[n.id] && (n.id !== 'witch' || cursesUnlocked()));
+  $('btn-village').classList.toggle('notify', inGame && (curseNotify() || unmet));
 }
+
+// ===========================================================================
+// Village : plan cliquable, habitants, dialogues de présentation.
+// Dialogues : données simples (listes de répliques dans village.js) lues par un petit « lecteur »
+// à effet machine à écrire ; la rencontre de chaque habitant est mémorisée dans la sauvegarde.
+// ===========================================================================
+const fillText = (t) => t.replaceAll('{nom}', validLook(progress.look).name || 'pêcheur')
+  .replaceAll('{pecheur}', fisherWord(validLook(progress.look).sex));
+const pick = (list) => list[Math.floor(Math.random() * list.length)];
+
+// Machine à écrire : révèle le texte petit à petit ; full() affiche tout d'un coup
+function makeTyper(el, speed = 45) {
+  return {
+    text: '', shown: 0,
+    set(t) { this.text = t; this.shown = 0; el.textContent = ''; },
+    update(dt) {
+      if (this.shown >= this.text.length) return;
+      this.shown = Math.min(this.text.length, this.shown + dt * speed);
+      el.textContent = this.text.slice(0, Math.floor(this.shown));
+    },
+    done() { return this.shown >= this.text.length; },
+    full() { this.shown = this.text.length; el.textContent = this.text; },
+  };
+}
+
+// Portraits des habitants : leur personnage (character.js) en buste, ou l'icône de la sorcière
+const portraitCache = {};
+function npcPortrait(npc) {
+  if (npc.icon) return ICONS[npc.icon];
+  if (portraitCache[npc.id]) return portraitCache[npc.id];
+  const cv = makeCanvas(20, 20);
+  cv.getContext('2d').drawImage(buildFisherSprite({ ...npc.look, gear: 'off' }), 0, 0, 18, 18, 1, 1, 18, 18);
+  pixelize(cv, '#1e140c');
+  return (portraitCache[npc.id] = cv.toDataURL());
+}
+function npcBar(id) {
+  const npc = NPC_BY_ID[id];
+  return `<img src="${npcPortrait(npc)}" alt=""><div><b>${escapeHtml(npc.name)}</b> <small>${escapeHtml(npc.role)}</small>
+    <p>« ${escapeHtml(fillText(pick(npc.greet)))} »</p></div>`;
+}
+
+// --- dialogue de présentation
+const talk = { npc: null, lines: [], i: 0, then: null, typer: null };
+function startTalk(npc, lines, then) {
+  talk.npc = npc;
+  talk.lines = lines.map(fillText);
+  talk.i = 0;
+  talk.then = then;
+  talk.typer ||= makeTyper($('talk-text'));
+  $('talk-portrait').src = npcPortrait(npc);
+  $('talk-name').textContent = npc.name;
+  $('talk-role').textContent = `${npc.role} · ${npc.building}`;
+  openPanel('talk');
+  showTalkLine();
+}
+function showTalkLine() {
+  talk.typer.set(talk.lines[talk.i]);
+  $('talk-step').textContent = `${talk.i + 1} / ${talk.lines.length}`;
+  $('talk-next').textContent = talk.i === talk.lines.length - 1 ? 'Entrer ›' : 'Suivant ›';
+}
+function talkNext() {
+  if (!talk.typer.done()) { talk.typer.full(); return; }   // un clic affiche d'abord toute la réplique
+  if (++talk.i < talk.lines.length) { showTalkLine(); Sound.page(); return; }
+  endTalk();
+}
+function endTalk() {
+  progress.met[talk.npc.id] = true;
+  writeSave();
+  updateCurseButton();
+  checkAchievements();
+  const then = talk.then;
+  talk.then = null;
+  then?.();
+}
+$('talk-next').addEventListener('click', talkNext);
+$('talk-skip').addEventListener('click', () => { Sound.click(); endTalk(); });
+$('panel-talk').addEventListener('click', (e) => { if (!e.target.closest('button')) talkNext(); });
+
+// --- entrer dans un bâtiment : présentation à la première visite, puis le service de l'habitant
+function openNpc(id) {
+  const npc = NPC_BY_ID[id];
+  if (!npc || !inGame) return;
+  if (id === 'witch' && !cursesUnlocked()) {
+    if (openPanelName !== 'village') openPanel('village');
+    $('village-hint').textContent = 'Les volets de la cabane sont clos. Une odeur de soufre flotte… Revenez quand le lac vous aura montré ses abominations.';
+    Sound.miss();
+    return;
+  }
+  if (!progress.met[id]) startTalk(npc, npc.intro, () => openService(id));
+  else openService(id);
+}
+function openService(id) {
+  $('shop-npc').dataset.owner = '';            // nouvelle salutation à chaque entrée
+  if (id === 'witch') openPanel('curses');
+  else if (id === 'bric') { shopMode = 'bric'; if (shopTab === 'yard') shopTab = 'stock'; openPanel('shop'); }
+  else if (id === 'yard') { shopMode = 'yard'; shopTab = 'yard'; openPanel('shop'); }
+  else if (id === 'bank') openPanel('bank');
+  else if (id === 'fish') openPanel('fishmonger');
+}
+
+// --- le plan du village
+let villageArt = null;
+function renderVillage() {
+  $('village-title').textContent = VILLAGE_NAME;
+  $('village-hint').textContent = 'Cliquez sur un bâtiment pour entrer.';
+  $('village-spots').innerHTML = VILLAGE_SPOTS.map((s) => {
+    const npc = NPC_BY_ID[s.npc];
+    const locked = s.npc === 'witch' && !cursesUnlocked();
+    const badge = !locked && (!progress.met[s.npc] || (s.npc === 'witch' && curseNotify()));
+    return `<button class="v-spot ${locked ? 'locked' : ''}" data-npc="${s.npc}"
+      style="left:${(s.x / LW) * 100}%;top:${(s.y / LH) * 100}%;width:${(s.w / LW) * 100}%;height:${(s.h / LH) * 100}%"
+      title="${escapeHtml(locked ? 'Volets clos' : `${npc.building} — ${npc.name}`)}">
+      <span class="v-label">${escapeHtml(locked ? '???' : npc.building)}${badge ? ` <i class="v-badge">${progress.met[s.npc] ? '!' : 'nouveau'}</i>` : ''}</span></button>`;
+  }).join('');
+}
+// Dessin animé du plan (fumée des cheminées, lumière selon l'heure), seulement panneau ouvert
+function drawVillageFrame() {
+  const cv = $('village-canvas');
+  const c = cv.getContext('2d');
+  villageArt ||= buildVillageArt();
+  c.drawImage(villageArt, 0, 0);
+  for (const [x, y, col] of [[85, 158, '#9a6ad0'], [116, 56, '#d8dce0'], [410, 148, '#d8dce0']]) {
+    for (let k = 0; k < 5; k++) {
+      const p = (time * 0.35 + k / 5) % 1;
+      c.globalAlpha = 0.7 * (1 - p);
+      pxDisk(c, x + Math.sin(time + k * 2) * 3 + p * 6, y - p * 34, 2 + Math.round(p * 3), col);
+    }
+  }
+  c.globalAlpha = 1;
+  if (wv.dark > 0.05) {
+    c.fillStyle = `rgba(6, 10, 34, ${wv.dark * 0.55})`;
+    c.fillRect(0, 0, LW, LH);
+  }
+}
+$('village-spots').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-npc]');
+  if (b) openNpc(b.dataset.npc);
+});
+
+// ---------------------------------------------------------------------------
+// Banque : dépôts, retraits, intérêts quotidiens selon le cours du poisson
+// ---------------------------------------------------------------------------
+function renderBank() {
+  const mk = progress.market;
+  const prev = mk.history.length > 1 ? mk.history[mk.history.length - 2] : mk.index;
+  const change = prev ? ((mk.index - prev) / prev) * 100 : 0;
+  const arrow = change > 0.05 ? '▲' : change < -0.05 ? '▼' : '■';
+  const rows = [
+    ['En poche', `${fmtNum(progress.money)} ${coinImg()}`],
+    ['Sur votre compte', `${fmtNum(progress.bank)} ${coinImg()}`],
+    ['Cours du poisson', `${fmtIndex(mk.index)} <span class="${change >= 0 ? 'up' : 'down'}">${arrow} ${fmtIndex(Math.abs(change))} %</span>`],
+    ['Taux du jour', `${fmtIndex(bankRate(mk.index) * 100)} % par jour`],
+    ['Intérêts de demain', `${fmtNum(Math.min(BANK.maxInterest, Math.floor(progress.bank * bankRate(mk.index))))} ${coinImg()} (environ)`],
+    ['Intérêts reçus', `${fmtNum(progress.stats.interest || 0)} ${coinImg()}`],
+  ];
+  $('bank-table').innerHTML = rows.map(([a, v]) => `<tr><td>${a}</td><td>${v}</td></tr>`).join('');
+  const hist = mk.history;
+  $('bank-note').textContent = `Sur ${hist.length} jour${hist.length > 1 ? 's' : ''} : de ${fmtIndex(Math.min(...hist))} à ${fmtIndex(Math.max(...hist))}. ` +
+    `Le cours fixe le taux de la banque et le prix de rachat du poissonnier. Intérêts plafonnés à ${fmtNum(BANK.maxInterest)} pièces par jour.`;
+  drawBankChart();
+}
+
+function drawBankChart() {
+  const cv = $('bank-chart');
+  const c = cv.getContext('2d');
+  const W = cv.width, H = cv.height, pad = 8;
+  pxRect(c, 0, 0, W, H, '#1a2050');
+  const hist = progress.market.history;
+  const lo = Math.min(MARKET.base * 0.8, ...hist) - 5, hi = Math.max(MARKET.base * 1.2, ...hist) + 5;
+  const yOf = (v) => Math.round(H - pad - ((v - lo) / (hi - lo)) * (H - 2 * pad));
+  const xOf = (i) => Math.round(pad + (hist.length > 1 ? (i / (hist.length - 1)) * (W - 2 * pad) : (W - 2 * pad) / 2));
+  for (let x = pad; x < W - pad; x += 4) pxRect(c, x, yOf(MARKET.base), 2, 1, '#5a64a0');   // repère « 100 »
+  for (let i = 1; i < hist.length; i++) pxLine(c, xOf(i - 1), yOf(hist[i - 1]), xOf(i), yOf(hist[i]), hist[i] >= hist[i - 1] ? '#7cf08a' : '#ff7a6a');
+  const last = hist.length - 1;
+  pxDisk(c, xOf(last), yOf(hist[last]), 2, '#ffd84a');
+}
+
+const bankMsg = (t) => { $('bank-msg').textContent = t; };
+$('panel-bank').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-bank]');
+  if (!b) return;
+  const raw = Number($('bank-amount').value);
+  const amount = Number.isFinite(raw) ? Math.floor(raw) : 0;
+  const op = b.dataset.bank;
+  let n = 0;
+  if (op === 'deposit-all') n = progress.money;
+  else if (op === 'withdraw-all') n = progress.bank;
+  else n = amount;
+  const deposit = op.startsWith('deposit');
+  const max = deposit ? progress.money : progress.bank;
+  if (!(n > 0)) { bankMsg('Indiquez un montant (nombre entier de pièces).'); Sound.miss(); return; }
+  if (n > max) { bankMsg(deposit ? "Vous n'avez pas autant de pièces en poche." : "Votre compte n'en contient pas autant."); Sound.miss(); return; }
+  if (deposit) { progress.money -= n; progress.bank += n; } else { progress.bank -= n; progress.money += n; }
+  bankMsg(`${deposit ? 'Dépôt' : 'Retrait'} de ${fmtNum(n)} pièces effectué.`);
+  $('bank-amount').value = '';
+  Sound.buy();
+  writeSave();
+  updateHud();
+  renderBank();
+  checkAchievements();
+});
+
+// ---------------------------------------------------------------------------
+// Poissonnerie : rachat des prises de la bourriche, au cours du jour
+// ---------------------------------------------------------------------------
+// Prises regroupées par espèce (et abomination), les plus chères d'abord
+function catchStacks() {
+  const map = new Map();
+  for (const c of progress.catches) {
+    const k = `${c.id}:${c.abom ? 1 : 0}`;
+    if (!map.has(k)) map.set(k, { f: creature(c.id), abom: c.abom, list: [] });
+    map.get(k).list.push(c);
+  }
+  return [...map.values()].map((s) => ({ ...s, value: s.list.reduce((t, c) => t + fishPrice(c), 0) }))
+    .sort((a, b) => b.value - a.value);
+}
+
+let catchCanvases = [];
+// sellable : boutons de vente (poissonnerie) ; sinon simple consultation (profil)
+function renderCatchList(el, sellable) {
+  const stacks = catchStacks();
+  el.innerHTML = stacks.length ? stacks.map((s, i) => {
+    const w = s.list.reduce((t, c) => t + c.w, 0);
+    return `
+      <div class="item catch-row ${s.abom ? 'abom' : ''}">
+        <canvas class="px catch-canvas" width="100" height="72" data-k="${i}"></canvas>
+        <div class="info"><b>${s.list.length > 1 ? `${s.list.length} × ` : ''}${fishName(s.f, s.abom)}</b>
+          <small>${s.abom ? 'Abomination · ' : ''}${RARITIES[s.f.tier].name} · ${fmtKg(w)} au total</small></div>
+        <div class="money">${fmtNum(s.value)} ${coinImg()}</div>
+        ${sellable ? `<div class="actions">
+          <button class="btn" data-sell-one="${s.list[0].uid}">Vendre 1</button>
+          ${s.list.length > 1 ? `<button class="btn" data-sell-stack="${i}">Tout (${s.list.length})</button>` : ''}
+        </div>` : ''}
+      </div>`;
+  }).join('') : `<p class="pot-empty">La bourriche est vide. Allez pêcher !</p>`;
+  // les créatures sont dessinées une seule fois (pas d'animation ici : liste potentiellement longue)
+  el.querySelectorAll('canvas[data-k]').forEach((cv) => {
+    const s = stacks[+cv.dataset.k];
+    renderFishCanvas(cv, s.f, { abom: s.abom, t: 0 });
+  });
+  return stacks;
+}
+
+let fmStacks = [];
+function renderFishmonger() {
+  const mk = progress.market;
+  $('fm-index').innerHTML = `Cours du jour : ${fmtIndex(mk.index)}`;
+  fmStacks = renderCatchList($('fm-list'), true);
+  const total = keepnetValue();
+  $('fm-total').innerHTML = `Bourriche : ${progress.catches.length} / ${keepnetSize()} prises · ${fmtNum(total)} ${coinImg()}`;
+  $('fm-sell-all').disabled = !progress.catches.length;
+}
+
+function sellCatches(uids) {
+  const set = new Set(uids);
+  let total = 0, n = 0;
+  progress.catches = progress.catches.filter((c) => {
+    if (!set.has(c.uid)) return true;
+    total += fishPrice(c);
+    n++;
+    return false;
+  });
+  if (!n) return;
+  progress.money += total;
+  progress.stats.earned += total;
+  progress.stats.fishSold = (progress.stats.fishSold || 0) + n;
+  $('fm-npc').querySelector('p').textContent = `« ${n > 1 ? `${n} prises` : 'Une prise'} pour ${fmtNum(total)} pièces. Affaire conclue ! »`;
+  Sound.sell();
+  writeSave();
+  updateHud();
+  renderFishmonger();
+  checkAchievements({ type: 'sale', total });
+}
+$('fm-list').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.sellOne) sellCatches([+b.dataset.sellOne]);
+  else if (b.dataset.sellStack) sellCatches(fmStacks[+b.dataset.sellStack].list.map((c) => c.uid));
+});
+$('fm-sell-all').addEventListener('click', () => sellCatches(progress.catches.map((c) => c.uid)));
+
+// ---------------------------------------------------------------------------
+// Cinématique d'ouverture : scènes dessinées dans le canvas du jeu + narration
+// ---------------------------------------------------------------------------
+const cine = { on: false, i: 0, t: 0, typer: null, then: null, art: null };
+function startIntro(then) {
+  cine.on = true;
+  cine.i = 0;
+  cine.then = then;
+  cine.typer ||= makeTyper($('cine-text'), 38);
+  cine.art ||= { office: buildOfficeArt(), road: buildRoadArt(), car: buildCarSprite() };
+  villageArt ||= buildVillageArt();
+  refreshBoat();
+  closePanel();
+  $('menu').hidden = true;
+  $('hud').hidden = true;
+  $('now-playing').hidden = true;
+  $('cine').hidden = false;
+  showCineScene();
+}
+function showCineScene() {
+  cine.t = 0;
+  cine.typer.set(fillText(INTRO_SCENES[cine.i].text));
+  $('cine-step').textContent = `${cine.i + 1} / ${INTRO_SCENES.length}`;
+  $('cine-next').textContent = cine.i === INTRO_SCENES.length - 1 ? 'Commencer ›' : 'Suivant ›';
+}
+function cineNext() {
+  if (!cine.typer.done()) { cine.typer.full(); return; }
+  if (++cine.i < INTRO_SCENES.length) { showCineScene(); Sound.page(); return; }
+  endIntro();
+}
+function endIntro() {
+  if (!cine.on) return;
+  cine.on = false;
+  $('cine').hidden = true;
+  $('now-playing').hidden = false;
+  Sound.click();
+  const then = cine.then;
+  cine.then = null;
+  then?.();
+}
+$('cine-next').addEventListener('click', cineNext);
+$('cine-skip').addEventListener('click', endIntro);
+$('cine').addEventListener('click', (e) => { if (!e.target.closest('button')) cineNext(); });
+
+// Décor de la scène en cours (fondu d'entrée sur chaque scène)
+function drawCine(dt) {
+  cine.t += dt;
+  time += dt;                                      // anime l'eau et les nuages du lac
+  cine.typer.update(dt);
+  const sc = INTRO_SCENES[cine.i].scene;
+  const t = cine.t;
+  if (sc === 'office') {
+    ctx.drawImage(cine.art.office, 0, 0);
+    // la pluie sur la vitre et le néon qui grésille
+    ctx.fillStyle = '#c8dcf2';
+    for (let k = 0; k < 30; k++) ctx.fillRect(304 + ((k * 37) % 132), 34 + ((k * 53 + t * 90) % 82), 1, 3);
+    if (Math.sin(t * 13) > 0.92) { ctx.fillStyle = 'rgba(0, 0, 0, 0.15)'; ctx.fillRect(0, 0, LW, LH); }
+    if (cine.i === 0) ctx.drawImage(buildFisherSpriteCached(), 100, 130, 36, 42);   // au bureau, derrière les dossiers
+    else {                                                                // la lettre, la chaise vide
+      pxRect(ctx, 182, 160, 22, 8, '#f4f0e6');
+      pxRect(ctx, 186, 162, 14, 1, '#8a8a90');
+      pxRect(ctx, 186, 164, 10, 1, '#8a8a90');
+      pxRect(ctx, 196, 164, 5, 3, '#c64a35');
+    }
+  } else if (sc === 'road') {
+    const { far, near } = cine.art.road;
+    const o1 = Math.floor((t * 12) % LW), o2 = Math.floor((t * 60) % LW);
+    ctx.drawImage(far, -o1, 0); ctx.drawImage(far, LW - o1, 0);
+    ctx.drawImage(near, -o2, 0); ctx.drawImage(near, LW - o2, 0);
+    ctx.drawImage(cine.art.car, 200, 188 + Math.round(Math.sin(t * 18) * 0.6));
+  } else if (sc === 'village') {
+    ctx.drawImage(villageArt, 0, 0);
+    ctx.fillStyle = 'rgba(255, 140, 70, 0.18)';                            // lumière de fin d'après-midi
+    ctx.fillRect(0, 0, LW, LH);
+  } else {
+    renderScene();                                                       // le lac, avec la barque
+    if (sc === 'eerie') {
+      // le lac s'assombrit, puis deux grands yeux s'ouvrent sous la surface
+      const a = Math.min(1, t / 3);
+      ctx.fillStyle = `rgba(24, 4, 40, ${0.5 * a})`;
+      ctx.fillRect(0, HORIZON, LW, LH - HORIZON);
+      ctx.fillStyle = `rgba(24, 4, 40, ${0.25 * a})`;
+      ctx.fillRect(0, 0, LW, HORIZON);
+      const open = clamp((t - 1.5) / 1.5, 0, 1);
+      ctx.globalAlpha = open * (0.7 + 0.3 * Math.sin(t * 2));
+      for (const sd of [-1, 1]) {
+        pxEllipse(ctx, 240 + sd * 34, 172, 12, Math.max(1, Math.round(5 * open)), '#e8c03a');
+        pxRect(ctx, 239 + sd * 34, 172 - Math.round(4 * open), 2, 1 + Math.round(8 * open), '#0b0508');
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+  if (t < 0.6) {                                                         // fondu au noir entre les scènes
+    ctx.fillStyle = `rgba(0, 0, 0, ${1 - t / 0.6})`;
+    ctx.fillRect(0, 0, LW, LH);
+  }
+}
+let fisherSpriteCache = null;
+const buildFisherSpriteCached = () => (fisherSpriteCache ||= buildFisherSprite({ ...validLook(progress.look), gear: 'off' }));
+
+$('opt-intro').addEventListener('click', () => {
+  const wasInGame = inGame;
+  fisherSpriteCache = null;
+  startIntro(() => { if (wasInGame) { $('hud').hidden = false; } else { $('menu').hidden = false; } });
+});
 
 // ===========================================================================
 // Panneaux
 // ===========================================================================
 let openPanelName = null;
-const PANELS = ['book', 'shop', 'sheet', 'options', 'crates', 'pot', 'achievements', 'char', 'leaderboard', 'curses'];
+const PANELS = ['book', 'shop', 'sheet', 'options', 'crates', 'pot', 'achievements', 'char', 'leaderboard', 'curses',
+  'village', 'talk', 'bank', 'fishmonger'];
 const MENU_PANELS = ['options', 'char', 'leaderboard'];   // accessibles depuis le menu principal
 
 function openPanel(name) {
@@ -3380,8 +3903,11 @@ function openPanel(name) {
   if (name === 'pot') renderPotRecap();
   if (name === 'achievements') renderAchievements();
   if (name === 'char') renderCharEditor();
-  if (name === 'leaderboard') { renderLeaderboard(); loadLeaderboard(); }
+  if (name === 'leaderboard') { $('lb-hint').textContent = ''; renderLeaderboard(); loadLeaderboard(); }
   if (name === 'curses') { witchLine = WITCH.greet[Math.floor(Math.random() * WITCH.greet.length)]; renderCurses(); }
+  if (name === 'village') renderVillage();
+  if (name === 'bank') { $('bank-npc').innerHTML = npcBar('bank'); $('bank-msg').textContent = ''; renderBank(); }
+  if (name === 'fishmonger') { $('fm-npc').innerHTML = npcBar('fish'); renderFishmonger(); }
   Sound.click();
 }
 
@@ -3538,7 +4064,9 @@ document.querySelectorAll('[data-section]').forEach((b) => b.addEventListener('c
 // ---------------------------------------------------------------------------
 // Boutique
 // ---------------------------------------------------------------------------
-let shopTab = 'rods';
+let shopTab = 'stock';
+let shopMode = 'bric';       // 'bric' : bric-à-brac de Josette · 'yard' : chantier naval de Marcel
+const SHOP_TABS = { bric: ['stock', 'rods', 'baits', 'pots'], yard: ['yard'] };
 
 function rodEffects(r) {
   return `Attente ${r.speed < 1 ? `−${Math.round((1 - r.speed) * 100)} %` : 'normale'} · Réaction +${r.window.toFixed(2).replace('.', ',')} s · Vigueur des poissons ${r.vigor < 1 ? `−${Math.round((1 - r.vigor) * 100)} %` : 'normale'}`;
@@ -3555,11 +4083,49 @@ function potEffects(p) {
   return parts.join(' · ');
 }
 
+// Objets du jour du bric-à-brac (renouvelés chaque matin, plus nombreux et plus rares avec le bateau)
+function renderStock() {
+  const br = progress.bric;
+  const left = Math.max(0, dayOf(progress.clock) * DAY_LEN - progress.clock);
+  let html = `<p class="stock-head">Nouvel arrivage dans ${fmtTime(left)} · Bateau niveau ${boatLevel()} : ${bricStockSize(boatLevel())} objets par jour, jusqu'à la rareté « ${RARITIES[bricMaxTier(boatLevel())].name} ».</p>`;
+  br.stock.forEach((id, i) => {
+    const it = ITEM_BY_ID[id];
+    const sold = br.sold[i];
+    const price = bricPrice(it);
+    const full = progress.items.length >= ITEM_CAP;
+    html += `
+      <div class="item ${sold ? 'locked' : ''}" style="--rc:${RARITIES[it.tier].color}">
+        <img class="item-icon" src="${equipIcon(it)}" alt="">
+        <div class="info"><b style="color:${rarText(it.tier)}">${it.name}</b>
+          <small>${KIND_BY_ID[it.slot].name} · ${RARITIES[it.tier].name}</small>
+          <span class="eff">${fxLines(it.fx).join(' · ')}</span>
+          <small class="inv-desc">${it.desc}</small></div>
+        <div class="actions">${sold ? '<button class="btn" disabled>Vendu</button>'
+          : `<button class="btn" data-buy-stock="${i}" ${progress.money < price || full ? 'disabled' : ''} ${full ? 'title="Inventaire plein"' : ''}>Acheter — ${fmtNum(price)} ${coinImg()}</button>`}</div>
+      </div>`;
+  });
+  return html;
+}
+
 function renderShop() {
   $('shop-money').textContent = fmtNum(progress.money);
-  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === shopTab));
+  const tabs = SHOP_TABS[shopMode];
+  if (!tabs.includes(shopTab)) shopTab = tabs[0];
+  const owner = shopMode === 'yard' ? 'yard' : 'bric';
+  $('shop-title').textContent = shopMode === 'yard' ? 'Chantier naval' : 'Bric-à-brac';
+  if ($('shop-npc').dataset.owner !== owner) {          // la salutation ne change qu'en entrant
+    $('shop-npc').innerHTML = npcBar(owner);
+    $('shop-npc').dataset.owner = owner;
+  }
+  $('shop-tabs').hidden = tabs.length < 2;
+  document.querySelectorAll('#shop-tabs .tab').forEach((t) => {
+    t.hidden = !tabs.includes(t.dataset.tab);
+    t.classList.toggle('active', t.dataset.tab === shopTab);
+  });
   let html = '';
-  if (shopTab === 'rods') {
+  if (shopTab === 'stock') {
+    html = renderStock();
+  } else if (shopTab === 'rods') {
     for (const r of RODS) {
       const owned = progress.rods.includes(r.id);
       const equipped = progress.rod === r.id;
@@ -3689,7 +4255,7 @@ function renderYard() {
       <div class="item special ${spGot ? 'equipped' : ''}">
         <img class="item-icon" src="${ICONS.boat}" alt="">
         <div class="info"><b>${spGot ? sp.name : '???'} <span class="tier">pièce spéciale</span></b>
-          <small>${spGot ? sp.desc : 'Introuvable en boutique. Elle se trouve en pêchant (poissons et caisses), une seule fois.'}</small>
+          <small>${spGot ? sp.desc : 'Introuvable en magasin. Elle se trouve en pêchant (poissons et caisses), une seule fois.'}</small>
           ${spGot ? '' : `<span class="eff">Chance par poisson : ${fmtPct(specialPartChance(0, 'fish'))} (commun) → ${fmtPct(specialPartChance(4, 'fish'))} (légendaire)</span>`}</div>
         <div class="actions"><button class="btn" disabled>${spGot ? 'Trouvée' : 'À trouver'}</button></div>
       </div>
@@ -3714,7 +4280,18 @@ function onGearClick(e) {
     if (boatReady()) startBoatSwap();
     return;
   }
-  if (d.buyPart) {
+  if (d.buyStock !== undefined) {
+    const i = +d.buyStock;
+    const id = progress.bric.stock[i];
+    const it = ITEM_BY_ID[id];
+    if (!it || progress.bric.sold[i] || progress.money < bricPrice(it) || progress.items.length >= ITEM_CAP) return;
+    progress.money -= bricPrice(it);
+    progress.stats.spent += bricPrice(it);
+    progress.items.push({ uid: ++progress.itemSeq, id });
+    progress.bric.sold[i] = true;
+    Sound.buy();
+    $('shop-npc').querySelector('p').textContent = `« ${it.name} ? Excellent choix. Prenez-en soin. »`;
+  } else if (d.buyPart) {
     const p = nextBoat()?.parts.find((x) => x.id === d.buyPart);
     if (!p || hasPart(p.id) || progress.money < p.price) return;
     progress.money -= p.price;
@@ -3793,9 +4370,21 @@ function renderSheet() {
   $('sheet-title').textContent = look.name ? `${look.name}, ${fisherWord(look.sex)}` : `Profil du ${fisherWord(look.sex)}`;
   document.querySelectorAll('[data-stab]').forEach((b) => b.classList.toggle('active', b.dataset.stab === sheetTab));
   $('inv-count').textContent = `(${progress.items.length})`;
+  $('fish-count').textContent = `(${progress.catches.length}/${keepnetSize()})`;
   $('sheet-main').hidden = sheetTab !== 'gear';
   $('sheet-inv').hidden = sheetTab !== 'inv';
-  if (sheetTab === 'inv') renderInventory(); else renderSheetMain();
+  $('sheet-fish').hidden = sheetTab !== 'fish';
+  if (sheetTab === 'inv') renderInventory();
+  else if (sheetTab === 'fish') renderKeepnet();
+  else renderSheetMain();
+}
+
+// Bourriche (consultation) : la vente se fait chez le poissonnier du village
+function renderKeepnet() {
+  $('fish-hint').innerHTML = `${progress.catches.length} / ${keepnetSize()} prises · valeur au cours du jour (${fmtIndex(progress.market.index)}) : ` +
+    `${fmtNum(keepnetValue())} ${coinImg()}. Vendez-les à ${escapeHtml(NPC_BY_ID.fish.name)}, à la poissonnerie du village (touche V). ` +
+    `Un meilleur bateau agrandit la bourriche.`;
+  renderCatchList($('fish-list'), false);
 }
 
 document.querySelectorAll('[data-stab]').forEach((b) => b.addEventListener('click', () => {
@@ -3995,6 +4584,14 @@ function renderSheetMain() {
     ['Coffres récupérés', fmtNum(st.chests || 0)],
     ['Plus lourde prise', best],
     ['Entrées du carnet', `${known} / ${dexTotal()}`],
+    ['section', `Village (${VILLAGE_NAME})`],
+    ['Bourriche', `${progress.catches.length} / ${keepnetSize()} prises · ${fmtNum(keepnetValue())} ${coinImg()}`],
+    ['Prises vendues', fmtNum(st.fishSold || 0)],
+    ['Prises relâchées (bourriche pleine)', fmtNum(st.released || 0)],
+    ['Compte en banque', `${fmtNum(progress.bank)} ${coinImg()}`],
+    ['Intérêts reçus', `${fmtNum(st.interest || 0)} ${coinImg()}`],
+    ['Cours du poisson', fmtIndex(progress.market.index)],
+    ['Habitants rencontrés', `${NPCS.filter((n) => progress.met[n.id]).length} / ${NPCS.length}`],
     ['section', 'Bateau'],
     ['Bateau actuel', `${boatDef().name} (niveau ${boatLevel()} / ${BOAT_MAX})`],
     ['Cannes et caisses débloquées', `jusqu'au niveau ${boatMaxTier(boatLevel())}`],
@@ -4085,7 +4682,7 @@ function renderCrates() {
     const types = POTS.filter((t) => potsAvailable(t.id) > 0);
     if (!types.length) {
       return `<div class="slot crate-slot empty"><div class="slot-label">Emplacement ${i + 1} · libre</div>
-        <div class="eff">Aucune caisse disponible. Achetez-en une à la boutique (onglet « Caisses »).</div></div>`;
+        <div class="eff">Aucune caisse disponible. Achetez-en une au bric-à-brac du village (onglet « Caisses »).</div></div>`;
     }
     const sel = crateSel[i];
     if (!types.some((t) => t.id === sel.type)) sel.type = types[0].id;
@@ -4143,12 +4740,15 @@ let potCanvases = [];
 function renderPotRecap() {
   const lp = lastPot;
   const t = POT_BY_ID[lp.type];
-  const total = lp.results.reduce((s, r) => s + r.money, 0);
+  const priced = (r) => Math.round((r.money * progress.market.index) / MARKET.base);
+  const total = lp.results.reduce((s, r) => s + (r.stored ? priced(r) : 0), 0);
+  const released = lp.results.filter((r) => !r.stored).length;
   $('pot-title').textContent = `Relevé : ${t.name}`;
   $('pot-items').hidden = !lp.drops?.length && !lp.part;
   $('pot-items').innerHTML = (lp.part ? `<div class="cc-loot cc-part">${partHtml(lp.part)}</div>` : '') +
     (lp.drops || []).map((d) => `<div class="cc-loot">${dropHtml(d)}</div>`).join('');
-  $('pot-total').innerHTML = lp.results.length ? `Total : + ${fmtNum(total)} ${coinImg()}` : '';
+  $('pot-total').innerHTML = lp.results.length
+    ? `Dans la bourriche : ${fmtNum(total)} ${coinImg()}${released ? ` <small>(${released} relâché${released > 1 ? 's' : ''} : bourriche pleine)</small>` : ''}` : '';
   $('pot-list').innerHTML = lp.results.length
     ? lp.results.map((r, k) => {
       const badges = [r.newSpecies && 'Nouvelle entrée !', r.sizeRecord && 'Record de taille !', r.weightRecord && 'Record de poids !'].filter(Boolean);
@@ -4158,7 +4758,7 @@ function renderPotRecap() {
           <div class="info"><b>${fishName(r.cr, r.abom)}</b>
             <small>${r.abom ? 'Abomination · ' : ''}${RARITIES[r.cr.tier].name} — ${fmtCm(r.size)} · ${fmtKg(r.weight)}</small>
             ${badges.length ? `<span class="eff">${badges.join(' · ')}</span>` : ''}</div>
-          <div class="money">+ ${fmtNum(r.money)} ${coinImg()}</div>
+          <div class="money">${r.stored ? `${fmtNum(priced(r))} ${coinImg()}` : '<small>relâché</small>'}</div>
         </div>`;
     }).join('')
     : `<p class="pot-empty">La caisse est vide… Laissez-la plus longtemps dans l'eau.</p>`;
@@ -4237,6 +4837,11 @@ const ACHIEVEMENTS = [
   { id: 'boat_3',       name: 'Patron pêcheur',            desc: 'Passer au bateau de pêche.',                        test: (p) => (p.boat?.level || 1) >= 3 },
   { id: 'boat_4',       name: 'Loup de mer',               desc: 'Passer au chalutier.',                              test: (p) => (p.boat?.level || 1) >= 4 },
   { id: 'boat_5',       name: 'Capitaine des abysses',     desc: 'Mettre à l\'eau le navire Abysse-X.',               test: (p) => (p.boat?.level || 1) >= 5 },
+  { id: 'first_sale',   name: 'Jour de marché',            desc: 'Vendre une prise au poissonnier.',                  test: (p) => (p.stats.fishSold || 0) >= 1 },
+  { id: 'big_sale',     name: 'Le roi de la criée',        desc: 'Gagner 5 000 pièces en une seule vente.',           test: (p, ev) => ev.type === 'sale' && ev.total >= 5000 },
+  { id: 'saver',        name: 'Bas de laine bancaire',     desc: 'Avoir 10 000 pièces sur son compte.',               test: (p) => (p.bank || 0) >= 10000 },
+  { id: 'interest',     name: 'Rentier',                   desc: 'Recevoir 10 000 pièces d\'intérêts au total.',      test: (p) => (p.stats.interest || 0) >= 10000 },
+  { id: 'villagers',    name: 'Tout le monde se connaît',  desc: 'Rencontrer tous les habitants du village.',         test: (p) => NPCS.every((n) => p.met[n.id]) },
 ];
 
 const toastQueue = [];
@@ -4487,6 +5092,27 @@ function syncOptions() {
   $('opt-music-val').textContent = `${Math.round(s.music * 100)} %`;
   $('opt-sfx-val').textContent = `${Math.round(s.sfx * 100)} %`;
   $('opt-mute').checked = s.muted;
+  // choix du morceau : automatique (selon le moment du jeu) ou un morceau précis, en boucle ou en playlist
+  const sel = $('opt-track');
+  if (!sel.options.length) {
+    const auto = document.createElement('option');
+    auto.value = 'auto';
+    auto.textContent = 'Automatique (selon le moment)';
+    sel.append(auto);
+    for (const tr of Sound.trackList()) {
+      const o = document.createElement('option');
+      o.value = tr.id;
+      o.textContent = `${tr.title} — ${tr.info}`;
+      sel.append(o);
+    }
+  }
+  sel.value = s.track;
+  $('opt-loop').checked = s.loop;
+  $('opt-loop').disabled = s.track === 'auto';
+  $('opt-track-hint').textContent = s.track === 'auto'
+    ? 'La musique suit le jeu : le village, la pluie, la nuit, le lac corrompu… et le combat contre le Grand Ancien.'
+    : s.loop ? 'Ce morceau est rejoué en boucle (sauf pendant le combat contre le Grand Ancien).'
+    : 'Ce morceau est joué, puis les suivants, l\'un après l\'autre.';
   $('opt-fullscreen').textContent = document.fullscreenElement ? 'Quitter le plein écran' : 'Plein écran';
   syncAdmin();
 }
@@ -4495,6 +5121,8 @@ $('opt-music').addEventListener('input', (e) => { Sound.set('music', e.target.va
 $('opt-sfx').addEventListener('input', (e) => { Sound.set('sfx', e.target.value / 100); syncOptions(); });
 $('opt-sfx').addEventListener('change', () => Sound.bell(false));
 $('opt-mute').addEventListener('change', (e) => { Sound.set('muted', e.target.checked); syncOptions(); });
+$('opt-track').addEventListener('change', (e) => { Sound.init(); Sound.chooseTrack(e.target.value, $('opt-loop').checked); syncOptions(); });
+$('opt-loop').addEventListener('change', (e) => { Sound.chooseTrack($('opt-track').value, e.target.checked); syncOptions(); });
 $('opt-fullscreen').addEventListener('click', () => {
   if (document.fullscreenElement) document.exitFullscreen?.();
   else document.documentElement.requestFullscreen?.().catch(() => {});
@@ -4526,8 +5154,20 @@ for (const ev of ['pointerup', 'pointercancel', 'blur']) window.addEventListener
 window.addEventListener('keyup', (e) => { if (e.code === 'Space') holding = false; });
 
 window.addEventListener('keydown', (e) => {
-  // on tape dans un champ (nom du personnage…) : pas de raccourcis, sauf Échap
+  // cinématique : Espace / Entrée pour avancer, Échap pour passer
+  if (cine.on) {
+    if (e.code === 'Escape') endIntro();
+    else if (['Space', 'Enter', 'NumpadEnter'].includes(e.code) && !e.repeat) { e.preventDefault(); cineNext(); }
+    return;
+  }
+  // on tape dans un champ (nom du personnage, montant à la banque…) : pas de raccourcis, sauf Échap
   if (e.target.matches?.('input, textarea, select') && e.code !== 'Escape') return;
+  // dialogue avec un habitant : Espace / Entrée pour avancer
+  if (openPanelName === 'talk' && ['Space', 'Enter', 'NumpadEnter'].includes(e.code) && !e.repeat) {
+    e.preventDefault();
+    talkNext();
+    return;
+  }
   if (e.code === 'Escape') {
     if (openPanelName) closePanel();
     else if (inGame) showMenu();
@@ -4559,7 +5199,13 @@ window.addEventListener('keydown', (e) => {
     else { sheetTab = 'inv'; if (openPanelName === 'sheet') renderSheet(); else openPanel('sheet'); }
     return;
   }
-  const target = { KeyC: 'book', KeyB: 'shop', KeyP: 'sheet', KeyK: 'crates', KeyT: 'achievements', KeyM: 'curses' }[e.code];
+  // raccourcis vers les habitants du village : B (bric-à-brac), M (sorcière)
+  const npcKey = { KeyB: ['bric', 'shop'], KeyM: ['witch', 'curses'] }[e.code];
+  if (npcKey) {
+    if (openPanelName === npcKey[1]) closePanel(); else openNpc(npcKey[0]);
+    return;
+  }
+  const target = { KeyC: 'book', KeyP: 'sheet', KeyK: 'crates', KeyT: 'achievements', KeyV: 'village' }[e.code];
   if (target) {
     if (openPanelName === target) closePanel();
     else openPanel(target);
@@ -4581,21 +5227,19 @@ window.addEventListener('resize', fitUi);
 // ---------------------------------------------------------------------------
 // Disque « musique en cours », en bas à droite
 // ---------------------------------------------------------------------------
-const TRACKS = {
-  calm: { title: 'Ricochets sur le Lac Tranquille', info: 'Thème principal' },
-  epic: { title: "L'Éveil du Grand Ancien", info: 'Combat' },
-};
+// (titres des morceaux : registre TRACKS de audio.js)
 let npKey = '';
 function updateNowPlaying() {
   const np = Sound.nowPlaying();
-  const key = `${np.track}|${np.playing}`;
+  const s = Sound.settings;
+  const key = `${np.track}|${np.playing}|${s.track}|${s.loop}`;
   if (key === npKey) return;
   const changed = npKey && npKey.split('|')[0] !== np.track;
   npKey = key;
-  const tr = TRACKS[np.track] || TRACKS.calm;
   const el = $('now-playing');
-  $('np-title').textContent = tr.title;
-  el.title = `${tr.title} — ${tr.info}${np.playing ? '' : ' (en pause : musique coupée ou pas encore lancée)'}`;
+  $('np-title').textContent = np.title;
+  $('np-mode').textContent = s.track === 'auto' ? 'En écoute' : s.loop ? 'En boucle' : 'Playlist';
+  el.title = `${np.title} — ${np.info}${np.playing ? '' : ' (en pause : musique coupée ou pas encore lancée)'} · cliquez pour choisir un morceau`;
   el.classList.toggle('paused', !np.playing);
   el.classList.toggle('epic', np.track === 'epic');
   if (changed) {                                   // petite animation au changement de morceau
@@ -4605,6 +5249,19 @@ function updateNowPlaying() {
   }
 }
 $('np-disc').getContext('2d').drawImage(buildDiscIcon(), 0, 0);
+// un clic sur le disque ouvre les options, où l'on choisit le morceau
+$('now-playing').addEventListener('click', () => { if (!cine.on) openPanel('options'); });
+$('now-playing').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !cine.on) openPanel('options'); });
+
+// Morceau du mode automatique : il suit ce qui se passe dans le jeu
+function musicContext() {
+  if (!inGame) return 'calm';
+  if (['village', 'talk', 'bank', 'fishmonger', 'shop'].includes(openPanelName)) return 'village';
+  if (openPanelName === 'curses' || corruption() >= 0.6) return 'abysses';
+  if (isNight()) return 'nuit';
+  if (['pluie', 'orage'].includes(weather().id)) return 'pluie';
+  return 'calm';
+}
 
 $('game-version').textContent = GAME_VERSION;
 buildIcons();
@@ -4618,9 +5275,17 @@ let last = performance.now();
 function loop(now) {
   const dt = Math.min((now - last) / 1000, 0.05);
   last = now;
+  if (cine.on) {                                   // cinématique : le jeu est en pause
+    drawCine(dt);
+    requestAnimationFrame(loop);
+    return;
+  }
   update(dt);
   render();
+  Sound.setContext(musicContext());               // le changement se fait à la prochaine mesure
   updateNowPlaying();
+  if (openPanelName === 'talk') talk.typer?.update(dt);
+  if (openPanelName === 'village') drawVillageFrame();
   if (openPanelName === 'book') for (const b of bookCanvases) renderFishCanvas(b.cv, b.f, { abom: b.abom, silhouette: !b.known, t: time });
   if (openPanelName === 'pot') for (const b of potCanvases) renderFishCanvas(b.cv, b.f, { abom: b.abom, t: time });
   if (inGame && game.state === 'caught' && game.catch) renderFishCanvas($('cc-fish'), game.catch.f, { abom: game.catch.abom, t: time });

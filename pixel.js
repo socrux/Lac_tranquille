@@ -1340,6 +1340,27 @@ const ICON_SPRITES = {
     ],
     pal: { o: '#3a2408', y: '#f5d04a', Y: '#c99a1e', w: '#fff6c0', b: '#8a5a32', B: '#5e3a20' },
   },
+  village: {
+    rows: [
+      '................',
+      '...........o....',
+      '....oo....oyo...',
+      '...orro..orrro..',
+      '..orrrro.orrrro.',
+      '.orrrrrroorrrrro',
+      'oooooooooooooooo',
+      '.owwwwwwo.owwwo.',
+      '.owbbwwwo.owwwo.',
+      '.owbbwddo.owddo.',
+      '.owwwwddo.owddo.',
+      '.ooooooooooooo..',
+      'gggggggggggggggg',
+      'gGgggGgggGgggGgg',
+      '~~~~~~~~~~~~~~~~',
+      '................',
+    ],
+    pal: { o: '#1e140c', r: '#c64a35', y: '#f5d04a', w: '#f0e6c8', b: '#8ac0e8', d: '#8a5a32', g: '#4caf3c', G: '#2f7a2e', '~': '#3384c4' },
+  },
   boat: {
     rows: [
       '................',
