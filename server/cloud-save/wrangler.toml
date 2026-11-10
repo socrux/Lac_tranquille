@@ -7,7 +7,9 @@ compatibility_date = "2025-09-01"
 # Origines autorisées (CORS), séparées par des virgules. Le jeu est hébergé sur GitHub Pages
 # (https://socrux.github.io/Lac_tranquille/ → origine "https://socrux.github.io", sans le chemin).
 # "null" = jeu ouvert depuis le disque (file://), pratique pour tester en local.
-# L'accès reste protégé par la clé (pas de cookie) : CORS ne sert ici qu'à limiter les sites appelants.
+# L'accès est protégé par la clé (pas de cookie) : CORS n'est pas une protection ici. Note : toute page
+# peut obtenir l'origine "null" (iframe « sandbox »), donc "null" laisse appeler l'API depuis n'importe quel
+# site. Sans danger (la clé reste nécessaire), mais retirez-le si vous ne testez pas le jeu en file://.
 ALLOWED_ORIGINS = "https://socrux.github.io,null"
 
 [[d1_databases]]

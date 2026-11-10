@@ -12,9 +12,10 @@ const BOAT_X = 240;
 const BOAT_Y = 222;          // haut de la coque
 
 const $ = (id) => document.getElementById(id);
+const overlayEl = $('overlay');                 // consulté plusieurs fois par image
 
 // Version du jeu : à mettre à jour à chaque pull request (MAJEUR.MINEUR.CORRECTIF)
-const GAME_VERSION = '1.7.0';
+const GAME_VERSION = '1.7.1';
 // Garde-fou contre le cache : la page (index.html, <meta name="game-version">) et ce script doivent
 // être de la même version. Sinon, le navigateur a mélangé une copie en cache et une nouvelle
 // (GitHub Pages : cache de 10 minutes) : on recharge la page une seule fois (sessionStorage évite
@@ -32,10 +33,9 @@ const GAME_VERSION = '1.7.0';
 })();
 // Nouveautés affichées sur le menu de départ (les points importants ; le détail est dans CHANGELOG.md)
 const WHATS_NEW = [
-  '5 nouveaux accessoires pour affronter le Grand Ancien (Signe des Anciens, Ancre runique…)',
-  'Carnet : nouvelles sections Objets et Accessoires, avec ceux qui restent à découvrir',
-  'Classement : les poissons que vous n\'avez jamais pêchés restent cachés (????)',
-  'Une caisse par niveau de bateau (jusqu\'à 5), et un bouton Inventaire',
+  'Nouvelle police d\'écriture, toujours en pixel art mais bien plus lisible : chiffres nets (3, 5, 2, 8…) et texte plus fluide',
+  'Le Grand Ancien n\'est plus relâché quand la bourriche est pleine',
+  'Copie de sécurité plus sûre, succès « Double casier » réparé, jeu plus fluide',
 ];
 // Écran tactile principal (téléphone, tablette) : consignes « Touchez » au lieu de « Cliquez »
 const TOUCH = !!window.matchMedia?.('(pointer: coarse)').matches;
@@ -496,7 +496,8 @@ function validProgress(raw) {
   step('succès', () => {
     const ach = vObj(s.achievements);
     for (const a of ACHIEVEMENTS) {
-      if (hasOwn(ach, a.id) && vNum(ach[a.id], 1e14) > 0) p.achievements[a.id] = ach[a.id];
+      const at = hasOwn(ach, a.id) ? vInt(ach[a.id], 1e14) : 0;   // date de déblocage (ms), bornée
+      if (at > 0) p.achievements[a.id] = at;
     }
   });
   // inventaire : objets connus, identifiants entiers positifs et uniques
@@ -532,7 +533,9 @@ function validProgress(raw) {
   step('horloge et météo', () => {
     p.clock = typeof s.clock === 'number' && Number.isFinite(s.clock) ? vNum(s.clock, SAVE_LIM.time) : CLOCK_START;
     const w = vObj(s.weather);
-    p.weather = hasOwn(WEATHER_BY_ID, w.id) ? { id: w.id, until: vNum(w.until, SAVE_LIM.time) } : null;
+    // fin de la météo : au plus sa durée maximale après l'heure de la partie (pas d'orage éternel)
+    const maxDur = Math.max(...WEATHERS.map((x) => x.dur[1]));
+    p.weather = hasOwn(WEATHER_BY_ID, w.id) ? { id: w.id, until: vNum(w.until, p.clock + maxDur) } : null;
   });
   step('malédiction', () => {
   const cu = vObj(s.curse);
@@ -564,8 +567,10 @@ function validProgress(raw) {
     history: vArr(mk.history).slice(-MARKET.history).map((x) => vNum(x, MARKET.max, MARKET.min)),
   };
   const br = vObj(s.bric);
-  const stock = vArr(br.stock).filter((id) => hasOwn(ITEM_BY_ID, id)).slice(0, 16);
-  p.bric = { day: vInt(br.day, SAVE_LIM.count), stock, sold: stock.map((_, i) => vArr(br.sold)[i] === true) };
+  // chaque objet garde son propre drapeau « vendu » : on filtre les paires ensemble (un id inconnu
+  // ne décale pas les drapeaux des suivants)
+  const pairs = vArr(br.stock).map((id, i) => [id, vArr(br.sold)[i] === true]).filter(([id]) => hasOwn(ITEM_BY_ID, id)).slice(0, 16);
+  p.bric = { day: vInt(br.day, SAVE_LIM.count), stock: pairs.map(([id]) => id), sold: pairs.map(([, sold]) => sold) };
   const met = vObj(s.met);
   for (const n of NPCS) if (met[n.id] === true) p.met[n.id] = true;
   });
@@ -573,7 +578,8 @@ function validProgress(raw) {
   step('statistiques', () => {
   const st = vObj(s.stats);
   for (const k of Object.keys(p.stats)) {
-    if (k !== 'best' && hasOwn(st, k)) p.stats[k] = vNum(st[k], SAVE_LIM.money);
+    // compteurs entiers (seul le temps de jeu, en secondes, garde ses décimales)
+    if (k !== 'best' && hasOwn(st, k)) p.stats[k] = k === 'playTime' ? vNum(st[k], SAVE_LIM.money) : vInt(st[k], SAVE_LIM.money);
   }
   const best = vObj(st.best);
   p.stats.best = hasOwn(FISH_BY_ID, best.id) || hasOwn(CRUST_BY_ID, best.id)
@@ -602,8 +608,21 @@ function validProgress(raw) {
 // nouvelle partie. Restaurable depuis les options (validée comme un import).
 const SAVE_BACKUP_KEY = 'lacTranquille.save.backup';
 const SAVE_BACKUP_MAX = SAVE_FILE_MAX;
+// temps de jeu d'une sauvegarde brute (-1 : illisible), pour comparer deux parties sans les interpréter
+function rawPlayTime(raw) {
+  try {
+    const t = JSON.parse(raw)?.stats?.playTime;
+    return typeof t === 'number' && Number.isFinite(t) ? Math.max(0, t) : 0;
+  } catch { return -1; }
+}
 function backupSave(raw, reason) {
   if (typeof raw !== 'string' || !raw || raw.length > SAVE_BACKUP_MAX) return;
+  // une seule copie : elle protège toujours la partie la plus avancée. Une partie vierge, ou moins
+  // avancée que la copie actuelle, ne la remplace pas (deux « Nouvelle partie » de suite ne perdent rien).
+  const t = rawPlayTime(raw);
+  if (t === 0) return;
+  const prev = readBackupRaw();
+  if (prev && prev !== raw && rawPlayTime(prev) > t) return;
   try {
     localStorage.setItem(SAVE_BACKUP_KEY, JSON.stringify({ at: Date.now(), reason, from: savedVersion(raw), save: raw }));
   } catch { /* stockage indisponible ou plein */ }
@@ -895,10 +914,14 @@ function seededRng(seed) {                         // mulberry32 : gameplay uniq
   };
 }
 const strHash = (s) => { let h = 2166136261; for (const ch of s) h = Math.imul(h ^ ch.codePointAt(0), 16777619); return h >>> 0; };
-const bubbleCache = { key: '', list: [] };
+const bubbleCache = { quick: '', list: [] };
 function bubblesOfDay(day) {
-  const key = `${normName(progress.look?.name)}|${day}|${boatLevel()}`;
-  if (bubbleCache.key === key) return bubbleCache.list;
+  // appelée plusieurs fois par image : comparaison rapide sur le nom brut ; le nom normalisé (plus
+  // coûteux) ne sert qu'à la graine. Le bateau n'en fait pas partie : en changer en pleine journée
+  // ne déplace pas les bulles.
+  const quick = `${progress.look?.name}|${day}`;
+  if (bubbleCache.quick === quick) return bubbleCache.list;
+  const key = `${normName(progress.look?.name)}|${day}`;
   const rng = seededRng(strHash(key));
   const n = Math.floor(rng() * (BUBBLES.perDayMax + 1));
   const list = [];
@@ -919,7 +942,7 @@ function bubblesOfDay(day) {
   // jamais deux à la fois : un événement qui commence avant la fin du dernier gardé est écarté
   const kept = [];
   for (const b of list) if (!kept.length || b.start >= kept[kept.length - 1].end) kept.push(b);
-  bubbleCache.key = key;
+  bubbleCache.quick = quick;
   bubbleCache.list = kept;
   return kept;
 }
@@ -1041,8 +1064,9 @@ function rollCatch(f, abom) {
 const keepnetSize = () => keepnetCap(boatLevel());
 const keepnetFull = () => progress.catches.length >= keepnetSize();
 // Garde une prise dans la bourriche ; si elle est pleine, la prise est relâchée (rien n'est vendu)
+// (le Grand Ancien, prise unique et très rare, n'est jamais relâché : il dépasse la capacité)
 function keepCatch(f, abom, c) {
-  if (keepnetFull()) {
+  if (keepnetFull() && !f.unique) {
     progress.stats.released = (progress.stats.released || 0) + 1;
     return false;
   }
@@ -1153,6 +1177,9 @@ function addItem(it) {
     const v = itemValue(it);
     progress.money += v;
     progress.stats.earned += v;
+    // comptée comme une vente, comme dans sellItems()
+    progress.stats.itemsSold = (progress.stats.itemsSold || 0) + 1;
+    progress.stats.itemsEarned = (progress.stats.itemsEarned || 0) + v;
     return { inst, sold: v };
   }
   progress.items.push(inst);
@@ -1419,7 +1446,7 @@ function updateCthulhu(dt) {
   if (!cth.active) return;
   cth.shake = Math.max(0, cth.shake - dt * 0.8);
   if (inGame && game.state === 'rising') {
-    if (!$('overlay').hidden) return;
+    if (!overlayEl.hidden) return;
     const p = clamp(game.t / (CTH_RISE_TIME - 0.6), 0, 1);
     cth.rise = p * p * (3 - 2 * p);
     cth.shake = Math.max(cth.shake, 0.3 + p * 0.7);
@@ -1609,7 +1636,7 @@ function updateReel(dt) {
 
 // target : point du lac visé (clic / toucher) ; sans target (Espace), lancer au hasard
 function onAction(target) {
-  if (!inGame || !$('overlay').hidden) return;
+  if (!inGame || !overlayEl.hidden) return;
   switch (game.state) {
     case 'idle':
       cast(target);
@@ -1865,6 +1892,7 @@ function update(dt) {
     tickPots();
     checkAchievements();
     if (openPanelName === 'crates') refreshCrateStatus();
+    if (openPanelName === 'curses') updateCurseStatus();
   }
   const targetEyes = corruption() * LAKE_EYES.length;
   LAKE_EYES.forEach((e, i) => {
@@ -1885,7 +1913,7 @@ function update(dt) {
 
   updateCthulhu(dt);
 
-  if (!inGame || !$('overlay').hidden) return;   // pause quand un panneau est ouvert
+  if (!inGame || !overlayEl.hidden) return;   // pause quand un panneau est ouvert
   game.t += dt;
   saveTimer += dt;
   if (saveTimer > 15) { saveTimer = 0; writeSave(); }
@@ -3057,17 +3085,25 @@ function updateCurseVis(dt) {
 // pseudo-aléatoire fixe (même valeur à chaque image pour un même i)
 const hr = (i, k = 0) => { const x = Math.sin(i * 127.1 + k * 311.7) * 43758.5453; return x - Math.floor(x); };
 const tint = (col, alpha) => { ctx.fillStyle = col; ctx.globalAlpha = alpha; ctx.fillRect(0, 0, LW, LH); ctx.globalAlpha = 1; };
+// dégradés créés une fois par réglage (et non à chaque image) : un CanvasGradient se réutilise
+const vignetteCache = new Map();
 const vignette = (r, g, b, alpha, inner = 90, cx = LW / 2, cy = LH / 2) => {
-  const grad = ctx.createRadialGradient(cx, cy, inner, cx, cy, LW * 0.62);
-  grad.addColorStop(0, `rgba(${r},${g},${b},0)`);
-  grad.addColorStop(1, `rgba(${r},${g},${b},${alpha})`);
+  const key = `${r},${g},${b},${alpha},${inner},${cx},${cy}`;
+  let grad = vignetteCache.get(key);
+  if (!grad) {
+    grad = ctx.createRadialGradient(cx, cy, inner, cx, cy, LW * 0.62);
+    grad.addColorStop(0, `rgba(${r},${g},${b},0)`);
+    grad.addColorStop(1, `rgba(${r},${g},${b},${alpha})`);
+    vignetteCache.set(key, grad);
+  }
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, LW, LH);
 };
 const RUNES = [[7, 5, 2, 5, 7], [5, 7, 5, 2, 2], [2, 5, 7, 5, 5], [6, 1, 6, 4, 3], [7, 1, 3, 1, 7], [5, 5, 2, 5, 5]];   // glyphes 3×5 (bits)
 
 function drawCurseFx() {
-  if (!inGame || !curseVis.id || curseVis.a <= 0) return;
+  // pas d'effet de malédiction sur les scènes de l'introduction (revue en pleine partie)
+  if (!inGame || cine.on || !curseVis.id || curseVis.a <= 0) return;
   const a = curseVis.a;
   const T = time;
   ctx.save();
@@ -3248,7 +3284,7 @@ function drawCurseFx() {
 // Effets appliqués à l'image entière (après la scène) : couleurs éteintes, monde qui tangue
 let curseBuf = null;
 function drawCursePost() {
-  if (!inGame || !curseVis.id || curseVis.a <= 0) return;
+  if (!inGame || cine.on || !curseVis.id || curseVis.a <= 0) return;
   const vis = CURSE_BY_ID[curseVis.id].vis;
   const a = curseVis.a;
   if (vis === 'mute') {                         // le monde perd ses couleurs
@@ -3608,10 +3644,10 @@ const LB_CATS = [
 const FISH_NAME_KEYS = new Map([...FISH, ...CRUSTS].flatMap((f) => [
   [f.name, dexKey(f, false)], ...(f.unique ? [] : [[f.abomName, dexKey(f, true)]]),
 ]));
+let lbDex = {};                           // carnet du joueur, relu une fois par rendu (hors partie : la sauvegarde)
 function lbFishName(name) {
   const key = FISH_NAME_KEYS.get(name);
-  const dex = inGame ? progress.dex : (loadSave()?.dex || {});
-  return key && dex[key] ? name : '????';
+  return key && lbDex[key] ? name : '????';
 }
 const lbData = {};                        // par catégorie : { at, updated, total, players }
 let lbCat = 'earned';
@@ -3637,29 +3673,38 @@ function validBoard(b) {
   };
 }
 
+const lbLoading = new Set();              // catégories en cours de chargement (pas de requêtes en double)
+const LB_FORCE_GAP_MS = 5 * 1000;         // « Actualiser » : pas plus d'une requête toutes les 5 s
 async function loadLeaderboard(force = false) {
   const cat = lbCat;
   if (!cloudOn()) { lbStatus = 'Classement indisponible.'; renderLeaderboard(); return; }
-  if (!force && lbData[cat] && Date.now() - lbData[cat].at < LB_CACHE_MS) { lbStatus = ''; renderLeaderboard(); return; }
+  const age = lbData[cat] ? Date.now() - lbData[cat].at : Infinity;
+  if (age < (force ? LB_FORCE_GAP_MS : LB_CACHE_MS) || lbLoading.has(cat)) { lbStatus = ''; renderLeaderboard(); return; }
+  lbLoading.add(cat);
   lbStatus = lbData[cat] ? '' : 'Chargement du classement…';
   renderLeaderboard();
   try {
     const res = await fetch(`${CLOUD_SAVE.url}/v1/leaderboard?cat=${encodeURIComponent(cat)}`, {
       cache: 'no-store', credentials: 'omit', referrerPolicy: 'no-referrer', redirect: 'error',
-      signal: AbortSignal.timeout(10000),
+      signal: timeoutSignal(10000),
     });
     if (!res.ok) throw new Error(res.status);
+    // taille annoncée vérifiée avant de télécharger le corps
+    if (Number(res.headers.get('content-length')) > LB_MAX_BYTES) throw new Error('classement trop volumineux');
     const text = await res.text();
     if (text.length > LB_MAX_BYTES) throw new Error('classement trop volumineux');
     lbData[cat] = { ...validBoard(JSON.parse(text)), at: Date.now() };
     if (cat === lbCat) lbStatus = '';
   } catch {
     if (cat === lbCat && !lbData[cat]) lbStatus = 'Impossible de charger le classement (pas de connexion ?).';
+  } finally {
+    lbLoading.delete(cat);
   }
   if (openPanelName === 'leaderboard' && cat === lbCat) renderLeaderboard();
 }
 
 function renderLeaderboard() {
+  lbDex = inGame ? progress.dex : (loadSave()?.dex || {});
   $('lb-tabs').innerHTML = LB_CATS.map((c) => `<button class="btn tab-lb ${c.id === lbCat ? 'active' : ''}" data-lb="${c.id}">${c.name}</button>`).join('');
   const cat = LB_CATS.find((c) => c.id === lbCat);
   const me = normName(progress.look?.name);
@@ -3713,12 +3758,25 @@ function refreshCurseDay(announce) {
   const d = dayOf(progress.clock);
   const cu = progress.curse;
   if (cu.day === d && cu.offers.length === CURSE_OFFERS) return;
-  const ended = cu.active ? CURSE_BY_ID[cu.active] : null;
-  const pool = CURSES.filter((c) => c.id !== cu.active);
-  for (let i = pool.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [pool[i], pool[j]] = [pool[j], pool[i]];
+  const shuffled = (list) => {
+    for (let i = list.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [list[i], list[j]] = [list[j], list[i]];
+    }
+    return list;
+  };
+  if (cu.day === d) {
+    // même jour, offre manquante (id disparu d'une ancienne sauvegarde) : on complète seulement,
+    // sans toucher au choix déjà fait (sinon une 2e malédiction pourrait être acceptée le même jour)
+    if (cu.active && !cu.offers.includes(cu.active)) cu.offers.unshift(cu.active);   // la malédiction acceptée reste affichée
+    const extra = shuffled(CURSES.filter((c) => !cu.offers.includes(c.id))).slice(0, Math.max(0, CURSE_OFFERS - cu.offers.length));
+    cu.offers.push(...extra.map((c) => c.id));
+    cu.offers.length = Math.min(cu.offers.length, CURSE_OFFERS);
+    if (openPanelName === 'curses') renderCurses();
+    return;
   }
+  const ended = cu.active ? CURSE_BY_ID[cu.active] : null;
+  const pool = shuffled(CURSES.filter((c) => c.id !== cu.active));
   progress.curse = { day: d, offers: pool.slice(0, CURSE_OFFERS).map((c) => c.id), active: null, decided: false };
   invalidateMods();
   updateCurseButton();
@@ -3779,11 +3837,16 @@ function renderCurses() {
           : `<button class="btn" data-curse="${c.id}" ${cu.decided ? 'disabled' : ''}>Accepter</button>`}
       </div>`;
   }).join('');
+  updateCurseStatus();
+  $('curse-refuse').hidden = cu.decided;
+}
+// Ligne d'état (compte à rebours) : rafraîchie chaque seconde tant que le panneau est ouvert
+function updateCurseStatus() {
+  const cu = progress.curse;
   const left = Math.max(0, cu.day * DAY_LEN - progress.clock);
-  $('curse-status').textContent = active ? `Fin de la malédiction dans ${fmtTime(left)} (au jour ${cu.day + 1}).`
+  $('curse-status').textContent = activeCurse() ? `Fin de la malédiction dans ${fmtTime(left)} (au jour ${cu.day + 1}).`
     : cu.decided ? `Nouvelles malédictions dans ${fmtTime(left)}.`
     : 'Une seule malédiction par jour. Elle dure jusqu\'au lendemain.';
-  $('curse-refuse').hidden = cu.decided;
 }
 
 $('curse-list').addEventListener('click', (e) => {
@@ -4479,7 +4542,8 @@ $('opt-tuto').addEventListener('click', () => {
 $('opt-intro').addEventListener('click', () => {
   const wasInGame = inGame;
   fisherSpriteCache = null;
-  startIntro(() => { if (wasInGame) { $('hud').hidden = false; } else { $('menu').hidden = false; } });
+  // en partie : retour au lac, et le tutoriel interrompu par l'introduction reprend
+  startIntro(() => { if (wasInGame) { $('hud').hidden = false; tutoMaybeStart(); } else { $('menu').hidden = false; } });
 });
 
 // ===========================================================================
@@ -4494,7 +4558,7 @@ function openPanel(name) {
   if (!inGame && !MENU_PANELS.includes(name)) return;
   if (name === 'curses' && !cursesUnlocked()) return;
   holding = false;
-  $('overlay').hidden = false;
+  overlayEl.hidden = false;
   $('message').hidden = true;
   for (const p of PANELS) $(`panel-${p}`).hidden = p !== name;
   openPanelName = name;
@@ -4516,18 +4580,21 @@ function openPanel(name) {
 
 function closePanel() {
   if (!openPanelName) return;
-  $('overlay').hidden = true;
+  overlayEl.hidden = true;
   $('message').hidden = false;
   $('inv-tip').hidden = true;
+  const was = openPanelName;
   openPanelName = null;
   updateHud();
+  // éditeur fermé depuis le menu (Échap) : on remet le menu à zéro, comme le bouton « Annuler »
+  if (was === 'char' && !inGame) refreshMenu();
 }
 
 document.querySelectorAll('[data-open]').forEach((b) =>
   b.addEventListener('click', (e) => { e.currentTarget.blur(); openPanel(b.dataset.open); }));
 document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => { Sound.click(); closePanel(); }));
 // clic à côté d'un panneau : on le ferme (sauf l'éditeur de personnage, pour ne rien perdre par erreur)
-$('overlay').addEventListener('pointerdown', (e) => {
+overlayEl.addEventListener('pointerdown', (e) => {
   if (e.target.id !== 'overlay' || openPanelName === 'char') return;
   if (openPanelName === 'pot') closePotRecap(); else closePanel();
 });
@@ -5253,7 +5320,9 @@ function renderSheetMain() {
   const oddsByTier = RARITIES.map((rar, tier) =>
     [rar.name, FISH.reduce((s, f, i) => s + (f.tier === tier ? odds[i] : 0), 0)]);
   const known = Object.keys(progress.dex).length;
-  const best = st.best ? `${fishName(FISH_BY_ID[st.best.id], st.best.abom)}, ${fmtKg(st.best.weight)}` : '—';
+  // record : poisson ou crustacé (creature) ; id inconnu → pas de nom plutôt qu'une erreur
+  const bestDef = st.best ? creature(st.best.id) : null;
+  const best = bestDef ? `${fishName(bestDef, st.best.abom)}, ${fmtKg(st.best.weight)}` : '—';
   const rows = [
     ['section', 'Pêche'],
     ['Temps de pêche', fmtTime(st.playTime)],
@@ -5600,7 +5669,7 @@ const ACHIEVEMENTS = [
   { id: 'all_crusts',   name: 'Carcinologue',              desc: 'Attraper toutes les espèces de crustacés.',         test: (p) => CRUSTS.every((c) => p.dex[c.id]) },
   { id: 'crust_aboms',  name: 'Pinces de l\'au-delà',      desc: 'Attraper toutes les abominations de crustacés.',    test: (p) => CRUSTS.every((c) => p.dex[`${c.id}:abom`]) },
   { id: 'full_pot',     name: 'Caisse pleine',             desc: 'Relever une caisse remplie à ras bord.',            test: (p, ev) => ev.type === 'collect' && ev.full },
-  { id: 'two_pots',     name: 'Double casier',             desc: 'Avoir deux caisses à l\'eau en même temps.',        test: (p) => p.pots.every(Boolean) },
+  { id: 'two_pots',     name: 'Double casier',             desc: 'Avoir deux caisses à l\'eau en même temps.',        test: (p) => p.pots.filter(Boolean).length >= 2 },
   { id: 'first_pot',    name: 'Casier en main',            desc: 'Acheter votre première caisse.',                    test: (p) => Object.values(p.potsOwned).some((n) => n > 0) },
   { id: 'first_bait',   name: 'Ça grouille',               desc: 'Acheter votre premier appât.',                      test: (p, ev) => ev.type === 'buy' && ev.item === 'bait' },
   { id: 'best_bait',    name: 'Œil pour œil',              desc: 'Acheter l\'Œil des profondeurs.',                   test: (p, ev) => ev.type === 'buy' && ev.id === 'oeil' },
@@ -5810,7 +5879,8 @@ const normName = (n) => String(n || '').normalize('NFC').trim().toLocaleLowerCas
 
 function validLink(x) {
   if (!isObj(x) || typeof x.name !== 'string' || !LB_NAME_RE.test(x.name) || !CLOUD_KEY_RE.test(x.key)) return null;
-  return { name: x.name, key: x.key, rev: vInt(x.rev, Number.MAX_SAFE_INTEGER), at: vInt(x.at, 1e14), ranked: x.ranked === true };
+  return { name: x.name, key: x.key, rev: vInt(x.rev, Number.MAX_SAFE_INTEGER), at: vInt(x.at, 1e14), ranked: x.ranked === true,
+    sentPt: vNum(x.sentPt, SAVE_LIM.time, -1) };
 }
 function cloudReadLink() {
   try { cloud.link = validLink(JSON.parse(localStorage.getItem(CLOUD_LINK_KEY))); } catch { cloud.link = null; }
@@ -5845,6 +5915,14 @@ function normKey(txt) {
   return CLOUD_KEY_RE.test(k) ? k : null;
 }
 
+// Signal qui interrompt une requête trop longue (repli pour les navigateurs sans AbortSignal.timeout)
+function timeoutSignal(ms) {
+  if (typeof AbortSignal.timeout === 'function') return AbortSignal.timeout(ms);
+  const c = new AbortController();
+  setTimeout(() => c.abort(), ms);
+  return c.signal;
+}
+
 async function cloudCall(path, body) {
   let res;
   try {
@@ -5853,7 +5931,7 @@ async function cloudCall(path, body) {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
       cache: 'no-store', credentials: 'omit', referrerPolicy: 'no-referrer', redirect: 'error',
-      signal: AbortSignal.timeout(10000),
+      signal: timeoutSignal(10000),
     });
   } catch {
     throw { code: 'reseau', message: 'Serveur injoignable (connexion ?).' };
@@ -5892,18 +5970,29 @@ async function cloudPush({ silent = false, force = false, retried = false } = {}
   if (cloud.conflict && !force) { cloud.lastCode = 'conflit'; return false; }
   cloud.busy = true;
   cloud.lastPush = Date.now();
+  // le temps de jeu envoyé est noté avant l'envoi : si la réponse se perd, on reconnaîtra notre propre
+  // envoi dans la version en ligne (voir cloudResolveConflict)
+  const payload = { ...cur, gv: GAME_VERSION };
+  const prevPt = cloud.link.sentPt;                // envoi précédent (sa réponse a pu se perdre)
+  cloudSetLink({ ...cloud.link, sentPt: payload.stats.playTime });
+  const sent = cloud.link;
   try {
     const r = await cloudCall('/v1/save', {
-      name: cloud.link.name, key: cloud.link.key, save: { ...cur, gv: GAME_VERSION }, baseRev: cloud.link.rev, fish: bestFishName(cur),
+      name: sent.name, key: sent.key, save: payload, baseRev: sent.rev, fish: bestFishName(cur),
     });
+    // lien retiré ou changé pendant l'envoi (déliage, autre partie appliquée) : réponse ignorée
+    if (!cloud.link || cloud.link.name !== sent.name || cloud.link.key !== sent.key) { cloud.lastCode = 'off'; return false; }
     cloudSetLink({ ...cloud.link, rev: vInt(r.rev, Number.MAX_SAFE_INTEGER), at: vInt(r.updatedAt, 1e14), ranked: r.ranked === true || cloud.link.ranked });
     cloud.lastCode = 'ok';
     if (!silent) cloudMsg('Partie envoyée en ligne.');
     return true;
   } catch (e) {
     cloud.lastCode = e.code || 'erreur';
+    if (!cloud.link || cloud.link.key !== sent.key) return false;          // lien changé pendant l'envoi
+    // sauvegarde en ligne supprimée (depuis un autre appareil) : on délie sans la recréer
+    if (e.code === 'supprimee') { cloudUnlink(); cloudMsg(e.message); return false; }
     if (e.code === 'conflit' && !retried) {
-      await cloudResolveConflict(cur);
+      await cloudResolveConflict(cur, [prevPt, payload.stats.playTime]);
       return cloud.lastCode === 'ok';
     }
     if (!silent || e.code !== 'trop_tot') cloudMsg(e.message);
@@ -5915,14 +6004,17 @@ async function cloudPush({ silent = false, force = false, retried = false } = {}
 }
 
 // Conflit : la version en ligne a une révision plus récente que celle connue ici.
-// Si elle n'est pas plus avancée (temps de jeu) que la partie locale, c'est un envoi précédent
-// dont la réponse s'est perdue : on reprend sa révision et on renvoie. Sinon, le joueur choisit.
-async function cloudResolveConflict(cur) {
+// Si c'est exactement notre dernier envoi (même temps de jeu, noté avant l'envoi), sa réponse s'est
+// perdue : on reprend sa révision et on renvoie. Sinon, un autre appareil a écrit : le joueur choisit.
+// (Un simple « moins de temps de jeu » ne suffit pas : l'autre appareil a pu jouer moins longtemps
+// mais faire des choses qu'on perdrait en l'écrasant.)
+async function cloudResolveConflict(cur, sentPts = []) {
   try {
     const r = await cloudCall('/v1/load', { name: cloud.link.name, key: cloud.link.key });
     const online = validProgress(r.save);
     const rev = vInt(r.rev, Number.MAX_SAFE_INTEGER);
-    if (online && online.stats.playTime <= cur.stats.playTime + 1) {
+    const mine = !!online && sentPts.some((t) => t >= 0 && Math.abs(online.stats.playTime - t) < 0.5);
+    if (online && mine) {
       cloudSetLink({ ...cloud.link, rev });
       cloud.busy = false;
       await cloudPush({ silent: true, retried: true });
@@ -6062,12 +6154,14 @@ $('cloud-copy').addEventListener('click', async () => {
 });
 
 let confirmUnlink = false;
+let confirmUnlinkTimer = 0;                        // annulé à chaque nouvel armement (un ancien minuteur ne désarme pas le nouveau)
 $('cloud-unlink').addEventListener('click', () => {
   Sound.click();
+  clearTimeout(confirmUnlinkTimer);
   if (!confirmUnlink) {
     confirmUnlink = true;
     $('cloud-unlink').textContent = 'Confirmer ? (gardez votre clé !)';
-    setTimeout(() => { confirmUnlink = false; $('cloud-unlink').textContent = 'Délier cet appareil'; }, 4000);
+    confirmUnlinkTimer = setTimeout(() => { confirmUnlink = false; $('cloud-unlink').textContent = 'Délier cet appareil'; }, 4000);
     return;
   }
   confirmUnlink = false;
@@ -6081,13 +6175,15 @@ $('cloud-unlink').addEventListener('click', () => {
 });
 
 let confirmDelete = false;
+let confirmDeleteTimer = 0;
 $('cloud-delete').addEventListener('click', async () => {
   Sound.click();
   if (!cloud.link || cloud.busy) return;
+  clearTimeout(confirmDeleteTimer);
   if (!confirmDelete) {
     confirmDelete = true;
     $('cloud-delete').textContent = 'Confirmer la suppression ?';
-    setTimeout(() => { confirmDelete = false; $('cloud-delete').textContent = 'Supprimer la sauvegarde en ligne'; }, 4000);
+    confirmDeleteTimer = setTimeout(() => { confirmDelete = false; $('cloud-delete').textContent = 'Supprimer la sauvegarde en ligne'; }, 4000);
     return;
   }
   confirmDelete = false;
@@ -6122,7 +6218,7 @@ async function cloudLoadFromForm() {
     const display = save.look?.name && normName(save.look.name) === normName(name) ? save.look.name : name;
     pendingImport = save;
     pendingLink = { name: display, key, rev: vInt(r.rev, Number.MAX_SAFE_INTEGER), at: vInt(r.updatedAt, 1e14) };
-    $('save-summary').textContent = `Partie en ligne trouvée (envoyée le ${fmtWhen(r.updatedAt)}) : ${saveSummary(save)}. Elle remplacera la partie de ce navigateur.`;
+    $('save-summary').textContent = `Partie en ligne trouvée (envoyée le ${fmtWhen(vInt(r.updatedAt, 1e14))}) : ${saveSummary(save)}. Elle remplacera la partie de ce navigateur.`;
     $('save-confirm').hidden = false;
     $('cloud-resume').hidden = true;
     $('cloud-keyin').value = '';
@@ -6342,7 +6438,7 @@ canvas.addEventListener('pointerdown', (e) => {
     }
   }
   // lancer : le flotteur part à l'endroit cliqué, qui doit être sur le lac
-  if (inGame && game.state === 'idle' && $('overlay').hidden) {
+  if (inGame && game.state === 'idle' && overlayEl.hidden) {
     const p = canvasPoint(e.clientX, e.clientY);
     if (!onLake(p.x, p.y)) { say(`${CLICK} sur le lac pour y lancer votre ligne.`); return; }
     holding = true;
@@ -6355,7 +6451,7 @@ canvas.addEventListener('pointerdown', (e) => {
 // curseur en viseur au-dessus du lac quand la ligne est libre (souris uniquement)
 canvas.addEventListener('pointermove', (e) => {
   if (e.pointerType !== 'mouse') return;
-  const aim = inGame && game.state === 'idle' && $('overlay').hidden;
+  const aim = inGame && game.state === 'idle' && overlayEl.hidden;
   const p = aim ? canvasPoint(e.clientX, e.clientY) : null;
   canvas.style.cursor = !aim ? 'pointer' : potAt(e.clientX, e.clientY) >= 0 ? 'pointer' : onLake(p.x, p.y) ? 'crosshair' : 'not-allowed';
 });
@@ -6383,6 +6479,10 @@ window.addEventListener('keydown', (e) => {
     else if (inGame) showMenu();
     return;
   }
+  // combinaisons système (Ctrl+C, Cmd+P, Alt+…) : on laisse faire le navigateur
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  // éditeur de personnage ouvert : aucun raccourci (on perdrait les choix en cours), Échap seul le ferme
+  if (openPanelName === 'char') return;
   if (e.code === 'KeyO') {
     if (openPanelName === 'options') closePanel(); else openPanel('options');
     return;
@@ -6491,6 +6591,7 @@ fitUi();
 refreshMenu();
 
 let last = performance.now();
+let fishAnimAt = 0;                                // dernier redessin des créatures animées des panneaux
 function loop(now) {
   const dt = Math.min((now - last) / 1000, 0.05);
   last = now;
@@ -6505,9 +6606,19 @@ function loop(now) {
   updateNowPlaying();
   if (openPanelName === 'talk') talk.typer?.update(dt);
   if (openPanelName === 'village') drawVillageFrame();
-  if (openPanelName === 'book') for (const b of bookCanvases) renderFishCanvas(b.cv, b.f, { abom: b.abom, silhouette: !b.known, t: time });
-  if (openPanelName === 'pot') for (const b of potCanvases) renderFishCanvas(b.cv, b.f, { abom: b.abom, t: time });
-  if (inGame && game.state === 'caught' && game.catch) renderFishCanvas($('cc-fish'), game.catch.f, { abom: game.catch.abom, t: time });
+  // créatures des panneaux : dessinées une fois ; seules les animées (abominations, Grand Ancien)
+  // sont redessinées, à 15 images/s (chaque dessin relit le canvas pixel par pixel : coûteux)
+  const animTick = time - fishAnimAt >= 1 / 15;
+  if (animTick) fishAnimAt = time;
+  const drawFish = (b, cv, opts) => {
+    const animated = (b.abom || b.f.unique) && !opts.silhouette;
+    if (b.drawn && !(animated && animTick)) return;
+    renderFishCanvas(cv, b.f, { ...opts, t: time });
+    b.drawn = true;
+  };
+  if (openPanelName === 'book') for (const b of bookCanvases) drawFish(b, b.cv, { abom: b.abom, silhouette: !b.known });
+  if (openPanelName === 'pot') for (const b of potCanvases) drawFish(b, b.cv, { abom: b.abom });
+  if (inGame && game.state === 'caught' && game.catch) drawFish(game.catch, $('cc-fish'), { abom: game.catch.abom });
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);

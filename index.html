@@ -16,9 +16,9 @@
   <!-- Version du jeu : identique à GAME_VERSION (game.js) et au « ?v= » des fichiers ci-dessous.
        Le « ?v= » change à chaque version : le navigateur recharge alors styles et scripts au lieu
        de garder d'anciennes copies en cache (GitHub Pages : cache de 10 minutes). -->
-  <meta name="game-version" content="1.7.0">
+  <meta name="game-version" content="1.7.1">
   <title>Lac Tranquille</title>
-  <link rel="stylesheet" href="style.css?v=1.7.0">
+  <link rel="stylesheet" href="style.css?v=1.7.1">
 </head>
 <body>
   <!-- Téléphone tenu à la verticale (affiché par style.css uniquement) -->
@@ -211,7 +211,7 @@
         </div>
       </div>
 
-      <!-- Classement (alimenté par la GitHub Action, voir .github/workflows/leaderboard.yml) -->
+      <!-- Classement (servi par le Worker de sauvegarde en ligne : /v1/leaderboard, voir server/cloud-save) -->
       <div id="panel-leaderboard" class="panel-wrap panel box" hidden>
         <header>
           <h2><img data-icon="trophy" alt="">Classement</h2>
@@ -502,11 +502,11 @@
     </div>
   </div>
 
-  <script src="audio.js?v=1.7.0"></script>
-  <script src="pixel.js?v=1.7.0"></script>
-  <script src="world.js?v=1.7.0"></script>
-  <script src="character.js?v=1.7.0"></script>
-  <script src="village.js?v=1.7.0"></script>
-  <script src="game.js?v=1.7.0"></script>
+  <script src="audio.js?v=1.7.1"></script>
+  <script src="pixel.js?v=1.7.1"></script>
+  <script src="world.js?v=1.7.1"></script>
+  <script src="character.js?v=1.7.1"></script>
+  <script src="village.js?v=1.7.1"></script>
+  <script src="game.js?v=1.7.1"></script>
 </body>
 </html>

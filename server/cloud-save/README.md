@@ -25,7 +25,7 @@ secret. Le `database_id` ne donne aucun accès sans le compte Cloudflare.
 | Fichier | Rôle |
 |---|---|
 | `worker.js` | Le serveur : routes `/v1/save`, `/v1/load`, `/v1/delete`, `/v1/score`, `/v1/leaderboard` |
-| `schema.sql` | Table `saves` (une ligne par pseudo) |
+| `schema.sql` | Tables `saves` (une ligne par pseudo), `scores` (classement) et `signups` (quota de nouveaux pseudos) |
 | `wrangler.toml` | Configuration du déploiement |
 | `test.mjs` | Tests locaux sans Cloudflare : `node server/cloud-save/test.mjs` |
 
@@ -55,7 +55,7 @@ Il faut Node.js et un compte Cloudflare gratuit. Toutes les commandes se lancent
 5. **Brancher le jeu** sur cette adresse, sans « / » final, à deux endroits :
    - `game.js` : `const CLOUD_SAVE = { url: 'https://lac-tranquille-saves.<votre-compte>.workers.dev' };`
    - `index.html`, dans la balise CSP : ajouter l'adresse à `connect-src`, par exemple
-     `connect-src https://raw.githubusercontent.com https://lac-tranquille-saves.<votre-compte>.workers.dev;`
+     `connect-src https://lac-tranquille-saves.<votre-compte>.workers.dev;`
 
    Tant que `url` est vide, le bloc « Sauvegarde en ligne » reste masqué dans les options.
 
@@ -117,13 +117,23 @@ Dans `game.js`, mettre `url: 'http://localhost:8787'` et ajouter `http://localho
 
 - Pseudo et clé voyagent dans le corps des requêtes POST, jamais dans l'URL. Aucun cookie.
 - Schéma strict :
-  - corps de 256 Ko au plus (4 Ko pour charger ou supprimer) ;
+  - corps de 64 Ko au plus (4 Ko pour charger ou supprimer) ;
   - champs de premier niveau en liste blanche (`SAVE_FIELDS`) ;
   - `__proto__`, `constructor` et `prototype` refusés ;
   - profondeur, longueur des tableaux et des textes, et nombres bornés.
 - Requêtes SQL paramétrées uniquement.
-- Débit limité à 30 requêtes par minute et par IP (binding `RATE_LIMITER`).
-- Une mauvaise clé et un pseudo inconnu donnent la même réponse, pour ne pas révéler quels pseudos existent.
+- Débit limité à 30 requêtes par minute et par IP (binding `RATE_LIMITER`), compté par réseau /64 en IPv6.
+  Sans ce binding (Worker créé depuis le tableau de bord), une limite de secours en mémoire s'applique,
+  propre à chaque instance : ajoutez le binding *Rate Limiting* pour une vraie protection.
+- Au plus 5 nouveaux pseudos par jour et par IP (table `signups` : empreinte tronquée de l'IP, salée
+  par la date, effacée après un jour).
+- Classement : le temps de jeu ne peut pas avancer plus vite que le temps réel entre deux scores, une
+  première inscription est plafonnée à 150 h, et le carnet à `DEX_MAX` (à mettre à jour quand le jeu
+  ajoute des espèces). Une partie sans prise n'entre pas au classement. Réponses gardées 30 s en
+  mémoire (5 min pour l'image SVG).
+- Sauvegarde supprimée : un appareil encore lié ne la recrée pas (code `supprimee`, le jeu le délie).
+- Pour charger ou supprimer, une mauvaise clé et un pseudo inconnu donnent la même réponse. En revanche,
+  la création d'une sauvegarde révèle qu'un pseudo est déjà pris (c'est inhérent à la réservation).
 - Les journaux ne contiennent ni pseudo, ni clé, ni IP.
 - Le jeu revalide toute sauvegarde reçue avec `validProgress()`, comme un import de fichier.
 - CORS : `ALLOWED_ORIGINS = "*"` convient, puisque l'accès dépend de la clé et pas d'un cookie.
@@ -138,5 +148,5 @@ avec le message « Champ de sauvegarde inconnu ».
 
 **Supprimer la sauvegarde d'un joueur** :
 ```powershell
-npx wrangler d1 execute lac-tranquille-saves --remote --command "DELETE FROM saves WHERE name = 'pseudo en minuscules'"
+npx wrangler d1 execute lac-tranquille-saves --remote --command "DELETE FROM saves WHERE name = 'pseudo en minuscules'; DELETE FROM scores WHERE name = 'pseudo en minuscules'"
 ```

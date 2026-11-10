@@ -36,3 +36,13 @@ CREATE INDEX IF NOT EXISTS scores_dex      ON scores (dex DESC);
 CREATE INDEX IF NOT EXISTS scores_days     ON scores (days DESC);
 CREATE INDEX IF NOT EXISTS scores_boat     ON scores (boat DESC);
 CREATE INDEX IF NOT EXISTS scores_cthulhu  ON scores (cthulhu DESC);
+CREATE INDEX IF NOT EXISTS scores_updated  ON scores (updated_at);
+
+-- Quota de nouveaux pseudos par jour : empreinte tronquée de l'adresse IP, salée par la date
+-- (jamais l'adresse elle-même). Les lignes de plus d'un jour sont effacées par le Worker.
+CREATE TABLE IF NOT EXISTS signups (
+  ip_hash TEXT    NOT NULL,
+  day     INTEGER NOT NULL,                -- jours depuis le 1er janvier 1970 (UTC)
+  n       INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (ip_hash, day)
+);

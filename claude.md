@@ -69,6 +69,8 @@ l'évaluation complète de game.js (c'est le cas : chargement depuis le menu ou 
     dans la save), avant nouvelle partie, import ou restauration ;
   - toute perte de progression doit être annoncée dans `CHANGELOG.md` (⚠️ partielle / ⛔ effacée) ;
   - nouveau champ de premier niveau = l'ajouter aussi à `SAVE_FIELDS` dans `server/cloud-save/worker.js`
+  - nouvelle espèce (poisson ou crustacé) = mettre à jour `DEX_MAX` dans `server/cloud-save/worker.js`
+    (égal à `dexTotal()`), sinon les scores des joueurs qui la pêchent sont refusés
     et redéployer le Worker, sinon la sauvegarde en ligne refuse les envois.
 - Sauvegarde en ligne : lien de l'appareil dans `lacTranquille.cloud` (`{ name, key, rev, at }`) ;
   clé générée par `crypto.getRandomValues`, jamais par `Math.random()`. Détails et déploiement :
