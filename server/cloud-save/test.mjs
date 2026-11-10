@@ -164,5 +164,35 @@ ok('GET refusé sur /v1/load', get.status === 405);
 const opt = await worker.fetch(new Request('https://x.test/v1/load', { method: 'OPTIONS', headers: { origin: 'null' } }), env);
 ok('préflight CORS', opt.status === 204 && opt.headers.get('access-control-allow-origin') === '*');
 
+// --- protections ajoutées en 1.7.1
+const fixedIp = (path, body, ipAddr) => worker.fetch(new Request('https://x.test' + path, {
+  method: 'POST', headers: { 'content-type': 'application/json', 'cf-connecting-ip': ipAddr }, body: JSON.stringify(body),
+}), env).then(async (res) => ({ status: res.status, data: await res.json() }));
+const keyN = (n) => `LAC-${String(n).padStart(5, '0')}-AAAAA-BBBBB-CCCCC`;
+{
+  // quota de nouveaux pseudos par jour, compté par réseau /64 en IPv6
+  const statuses = [];
+  for (let i = 0; i < 6; i++) {
+    const nm = `Quota${i}`;
+    statuses.push((await fixedIp('/v1/save', { name: nm, key: keyN(i), save: { ...save, look: { name: nm } }, baseRev: 0 }, `2001:db8:1:2::${i + 1}`)).status);
+  }
+  ok('quota : 5 pseudos par jour et par /64', statuses.slice(0, 5).every((s) => s === 200) && statuses[5] === 429, statuses);
+}
+// sauvegarde supprimée : un appareil encore lié ne la recrée pas
+r = await call('/v1/delete', { name: 'Carla', key: KEY });
+r = await call('/v1/save', { name: 'Carla', key: KEY, save: { ...save, look: { name: 'Carla' } }, baseRev: 1 });
+ok('sauvegarde supprimée non recréée', r.status === 410 && r.data.error === 'supprimee', r);
+// temps de jeu : pas plus vite que le temps réel
+r = await call('/v1/save', { name: 'Emma', key: KEY, save: { ...save, look: { name: 'Emma' } }, baseRev: 0 });
+age();
+r = await call('/v1/save', { name: 'Emma', key: KEY, save: { ...save, look: { name: 'Emma' }, stats: { ...save.stats, playTime: 3600 * 100, earned: 9e6, caught: 5000, casts: 6000 } }, baseRev: 1 });
+ok('temps de jeu plus rapide que le temps réel : non classé', r.status === 200 && r.data.ranked === false, r);
+r = await call('/v1/save', { name: 'Fred', key: KEY, save: { ...save, look: { name: 'Fred' }, stats: { ...save.stats, playTime: 3600 * 500 } }, baseRev: 0 });
+ok('première inscription : temps de jeu plafonné', r.status === 200 && r.data.ranked === false, r);
+r = await call('/v1/save', { name: 'Gina', key: KEY, save: { ...save, look: { name: 'Gina' }, dex: Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`f${i}`, {}])) }, baseRev: 0 });
+ok('carnet plus grand que le jeu : non classé', r.status === 200 && r.data.ranked === false, r);
+r = await call('/v1/save', { name: 'Hugo', key: KEY, save: { ...save, look: { name: 'Hugo' }, stats: { playTime: 60 } }, baseRev: 0 });
+ok('partie sans prise : pas au classement', r.status === 200 && r.data.ranked === false, r);
+
 console.log(fails ? `\n${fails} échec(s)` : '\nTous les tests passent.');
 process.exit(fails ? 1 : 0);

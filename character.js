@@ -40,7 +40,8 @@ function validLook(l) {
     if (o.colors && typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v)) out[o.key] = v;
   }
   // nom : sans caractères de contrôle, invisibles ou d'inversion du sens d'écriture
-  out.name = typeof l.name === 'string' ? l.name.replace(/[\p{C}\p{Zl}\p{Zp}]/gu, '').trim().slice(0, NAME_MAX) : '';
+  out.name = typeof l.name === 'string'
+    ? Array.from(l.name.replace(/[\p{C}\p{Zl}\p{Zp}]/gu, '').trim()).slice(0, NAME_MAX).join('').trim() : '';
   return out;
 }
 

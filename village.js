@@ -248,7 +248,7 @@ function drawGroundTile(c, g, col, row) {
     }
     if (h % 9 === 0) {                              // une fleur de temps en temps
       const fc = t === 'dark' ? '#b07ad8' : ['#f4f0e6', '#f5d04a', '#f08aa0'][h % 3];
-      const fx = x + 3 + (h % 9), fy = y + 4 + ((h >> 4) % 8);
+      const fx = x + 3 + (h % 9), fy = y + 4 + ((h >>> 4) % 8);
       pxRect(c, fx - 1, fy, 3, 1, fc); pxRect(c, fx, fy - 1, 1, 3, fc); pxRect(c, fx, fy, 1, 1, '#f5d04a');
     }
   } else if (t === 'tall') {
@@ -262,8 +262,8 @@ function drawGroundTile(c, g, col, row) {
     }
   } else if (t === 'path') {
     pxRect(c, x, y, VT, VT, VPAL.path);
-    if (h % 3 === 0) pxRect(c, x + (h % 12) + 1, y + ((h >> 3) % 12) + 2, 2, 1, VPAL.pathD);
-    if (h % 4 === 1) pxRect(c, x + ((h >> 2) % 12) + 2, y + ((h >> 5) % 12) + 1, 1, 1, VPAL.pathL);
+    if (h % 3 === 0) pxRect(c, x + (h % 12) + 1, y + ((h >>> 3) % 12) + 2, 2, 1, VPAL.pathD);
+    if (h % 4 === 1) pxRect(c, x + ((h >>> 2) % 12) + 2, y + ((h >>> 5) % 12) + 1, 1, 1, VPAL.pathL);
     // bordure : l'herbe déborde un peu sur le chemin
     if (!walk(at(col, row - 1))) { pxRect(c, x, y, VT, 1, VPAL.grassD); pxRect(c, x, y + 1, VT, 1, VPAL.pathD); }
     if (!walk(at(col, row + 1)) && at(col, row + 1) !== 'sand') pxRect(c, x, y + VT - 1, VT, 1, VPAL.pathD);
@@ -286,7 +286,7 @@ function drawGroundTile(c, g, col, row) {
   } else if (t === 'water') {
     pxRect(c, x, y, VT, VT, row >= 15 ? VPAL.waterD : VPAL.water);
     if (row === 15) for (let i = 0; i < VT; i += 2) pxRect(c, x + i + (row % 2), y, 1, 1, VPAL.water);   // transition tramée
-    pxRect(c, x + (h % 10) + 1, y + 4 + ((h >> 4) % 8), 4, 1, VPAL.waterL);                                // reflets
+    pxRect(c, x + (h % 10) + 1, y + 4 + ((h >>> 4) % 8), 4, 1, VPAL.waterL);                                // reflets
     if (at(col, row - 1) !== 'water') { pxRect(c, x, y, VT, 2, VPAL.foam); pxRect(c, x, y + 2, VT, 1, VPAL.waterL); }
   }
 }

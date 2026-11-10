@@ -51,7 +51,8 @@ const Sound = (() => {
 
   function init() {
     if (ac) {
-      if (ac.state === 'suspended') ac.resume();
+      // « suspended », ou « interrupted » sur iOS (appel, Siri) : on relance à chaque geste du joueur
+      if (ac.state !== 'running' && ac.state !== 'closed') ac.resume().catch(() => {});
       return;
     }
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -151,6 +152,8 @@ const Sound = (() => {
 
   const now = () => ac.currentTime + 0.01;
   const ready = () => ac && ac.state === 'running';
+  // effets sonores : inutile de créer des nœuds audio quand ils seraient muets
+  const sfxReady = () => ready() && !settings.muted && settings.sfx > 0;
 
   // ---------------------------------------------------------------------------
   // Musique : petite boucle chiptune calme, 16 mesures en fa majeur, 84 bpm
@@ -478,26 +481,26 @@ const Sound = (() => {
   const sfx = {
     // lancer : sifflement de la ligne + cliquetis du moulinet
     cast() {
-      if (!ready()) return;
+      if (!sfxReady()) return;
       const t = now();
       noise({ t, dur: 0.4, vol: 0.3, type: 'bandpass', freq: 500, freqTo: 3000, q: 1.5, attack: 0.03 });
       for (let i = 0; i < 10; i++) tone({ t: t + 0.08 + i * 0.055, f: 2200 - i * 60, dur: 0.02, type: 'square', vol: 0.03 });
     },
     // le flotteur touche l'eau
     splash() {
-      if (!ready()) return;
+      if (!sfxReady()) return;
       const t = now();
       noise({ t, dur: 0.35, vol: 0.3, type: 'lowpass', freq: 1400, freqTo: 250 });
       tone({ t, f: 520, slide: 140, dur: 0.16, type: 'sine', vol: 0.22 });
     },
     // petite touche
     plop() {
-      if (!ready()) return;
+      if (!sfxReady()) return;
       tone({ t: now(), f: 700, slide: 260, dur: 0.09, type: 'sine', vol: 0.09 });
     },
     // ça mord ! Cloche claire (ou glas inquiétant pour une abomination)
     bell(abom) {
-      if (!ready()) return;
+      if (!sfxReady()) return;
       const t = now();
       if (!abom) {
         for (const [dt, v] of [[0, 1], [0.22, 0.75]]) {
@@ -517,39 +520,39 @@ const Sound = (() => {
     },
     // on ferre : coup sec vers le haut
     hook() {
-      if (!ready()) return;
+      if (!sfxReady()) return;
       const t = now();
       noise({ t, dur: 0.18, vol: 0.25, type: 'bandpass', freq: 900, freqTo: 2800, q: 2 });
       tone({ t, f: 220, slide: 660, dur: 0.12, type: 'square', vol: 0.04 });
     },
     // cliquetis du moulinet (plus aigu à mesure que le poisson approche)
     reel(progress) {
-      if (!ready()) return;
+      if (!sfxReady()) return;
       tone({ t: now(), f: 1400 + progress * 900, dur: 0.025, type: 'square', vol: 0.022 });
     },
     // un coffre apparaît dans la jauge
     chestAppear() {
-      if (!ready()) return;
+      if (!sfxReady()) return;
       const t = now();
       [76, 83, 88].forEach((n, i) => tone({ t: t + i * 0.06, f: mtof(n), dur: 0.25, type: 'triangle', vol: 0.08, send: 0.4 }));
     },
     // coffre récupéré
     chestGet() {
-      if (!ready()) return;
+      if (!sfxReady()) return;
       const t = now();
       noise({ t, dur: 0.12, vol: 0.15, type: 'bandpass', freq: 600, q: 2 });
       [72, 76, 79, 84, 88].forEach((n, i) => tone({ t: t + 0.05 + i * 0.05, f: mtof(n), dur: 0.3, type: 'square', vol: 0.035, send: 0.4 }));
     },
     // succès débloqué : petite fanfare
     achievement() {
-      if (!ready()) return;
+      if (!sfxReady()) return;
       const t = now();
       [[67, 0], [72, 0.1], [76, 0.2], [79, 0.3]].forEach(([n, dt]) => tone({ t: t + dt, f: mtof(n), dur: 0.18, type: 'square', vol: 0.04, send: 0.3 }));
       for (const n of [72, 76, 79, 84]) tone({ t: t + 0.42, f: mtof(n), dur: 0.9, type: 'triangle', vol: 0.05, attack: 0.01, send: 0.4 });
     },
     // pêche parfaite
     perfect() {
-      if (!ready()) return;
+      if (!sfxReady()) return;
       const t = now() + 0.35;
       [84, 88, 91, 96, 100].forEach((n, i) => {
         tone({ t: t + i * 0.07, f: mtof(n), dur: 0.5, type: 'triangle', vol: 0.07, send: 0.5 });
@@ -558,7 +561,7 @@ const Sound = (() => {
     },
     // poisson attrapé
     catchFish(abom) {
-      if (!ready()) return;
+      if (!sfxReady()) return;
       const t = now();
       const notes = abom ? [57, 60, 63, 66, 69] : [72, 76, 79, 84];
       notes.forEach((n, i) => tone({ t: t + i * 0.07, f: mtof(n), dur: 0.16, type: abom ? 'sawtooth' : 'square', vol: abom ? 0.03 : 0.045, send: 0.3 }));
@@ -568,7 +571,7 @@ const Sound = (() => {
     },
     // pacte avec la sorcière : accords dissonants qui descendent, grondement grave
     curse() {
-      if (!ready()) return;
+      if (!sfxReady()) return;
       const t = now();
       [[62, 63], [58, 59], [53, 54]].forEach(([a, b], i) => {
         tone({ t: t + i * 0.22, f: mtof(a), slide: mtof(a - 1), dur: 0.5, type: 'sawtooth', vol: 0.025, send: 0.5 });
@@ -578,18 +581,18 @@ const Sound = (() => {
     },
     // le poisson s'échappe
     miss() {
-      if (!ready()) return;
+      if (!sfxReady()) return;
       const t = now();
       tone({ t, f: 440, slide: 220, dur: 0.22, type: 'square', vol: 0.04 });
       tone({ t: t + 0.2, f: 330, slide: 150, dur: 0.3, type: 'square', vol: 0.04 });
     },
     // ferré trop tôt
     early() {
-      if (!ready()) return;
+      if (!sfxReady()) return;
       tone({ t: now(), f: 300, slide: 180, dur: 0.18, type: 'triangle', vol: 0.15 });
     },
     buy() {
-      if (!ready()) return;
+      if (!sfxReady()) return;
       const t = now();
       for (const dt of [0, 0.12]) {
         tone({ t: t + dt, f: 988, dur: 0.06, type: 'square', vol: 0.04 });
@@ -597,16 +600,16 @@ const Sound = (() => {
       }
     },
     click() {
-      if (!ready()) return;
+      if (!sfxReady()) return;
       tone({ t: now(), f: 1200, slide: 900, dur: 0.04, type: 'square', vol: 0.03 });
     },
     page() {
-      if (!ready()) return;
+      if (!sfxReady()) return;
       noise({ t: now(), dur: 0.16, vol: 0.18, type: 'bandpass', freq: 1500, freqTo: 3500, q: 0.8, attack: 0.02 });
     },
     // objet trouvé : petit carillon (plus riche pour un objet rare)
     itemFound(tier = 0) {
-      if (!ready()) return;
+      if (!sfxReady()) return;
       const t = now();
       const notes = [79, 84, 88, 91, 96].slice(0, 2 + Math.min(3, tier));
       notes.forEach((n, i) => tone({ t: t + i * 0.08, f: mtof(n), dur: 0.35, type: 'triangle', vol: 0.07, send: 0.5 }));
@@ -614,13 +617,13 @@ const Sound = (() => {
     },
     // vente d'un objet : tintement de pièces
     sell() {
-      if (!ready()) return;
+      if (!sfxReady()) return;
       const t = now();
       for (let i = 0; i < 3; i++) tone({ t: t + i * 0.06, f: 1800 + Math.random() * 600, dur: 0.08, type: 'square', vol: 0.03 });
     },
     // tonnerre : grondement grave (distance = délai et douceur)
     thunder(dist = 0.5) {
-      if (!ready()) return;
+      if (!sfxReady()) return;
       const t = now();
       noise({ t, dur: 0.35, vol: 0.45 * (1 - dist * 0.6), type: 'lowpass', freq: 2400 - dist * 1600, freqTo: 300, attack: 0.01 });
       noise({ t: t + 0.05, dur: 2.8, vol: 0.5, type: 'lowpass', freq: 220, freqTo: 60, attack: 0.15 });

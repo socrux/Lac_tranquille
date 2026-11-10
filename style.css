@@ -1,10 +1,13 @@
-/* Police Pixelify Sans hébergée avec le jeu (licence SIL OFL 1.1, voir fonts/OFL.txt) :
-   aucune requête vers un serveur tiers. Police variable : graisses 400 à 700. */
+/* Police Jersey 15 hébergée avec le jeu (licence SIL OFL 1.1, voir fonts/OFL.txt) :
+   aucune requête vers un serveur tiers. Pixel art aux chiffres bien distincts.
+   size-adjust : agrandie pour occuper la même place que l'ancienne police (mise en page inchangée).
+   Une seule graisse, déjà épaisse : font-synthesis évite un faux gras qui baverait sur les pixels. */
 @font-face {
-  font-family: "Pixelify Sans";
-  src: url("fonts/PixelifySans.ttf") format("truetype");
-  font-weight: 400 700;
+  font-family: "Jersey 15";
+  src: url("fonts/Jersey15-Regular.ttf") format("truetype");
+  font-weight: 100 900;
   font-display: swap;
+  size-adjust: 125%;
 }
 
 * { box-sizing: border-box; }
@@ -14,7 +17,9 @@ html, body {
   height: 100%;
   background: #0a0e1c;
   color: #fff;
-  font-family: "Pixelify Sans", "Courier New", monospace;
+  font-family: "Jersey 15", "Courier New", monospace;
+  font-synthesis: none;
+  letter-spacing: 0.02em;
 }
 
 body {

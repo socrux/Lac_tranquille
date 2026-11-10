@@ -24,9 +24,10 @@ const NAME_RE = /^[\p{L}\p{M}\p{N} '’._-]{1,16}$/u;
 const KEY_RE = /^LAC(-[0-9A-HJKMNP-TV-Z]{5}){4}$/;
 const GV_RE = /^\d{1,3}\.\d{1,3}\.\d{1,3}$/;
 
-const BODY_MAX = 256 * 1024;        // une sauvegarde réelle pèse quelques Ko
+const BODY_MAX = 64 * 1024;         // une sauvegarde réelle pèse quelques Ko (inventaire et bourriche pleins : ~25 Ko)
 const SMALL_BODY_MAX = 4 * 1024;    // /load et /delete
 const MIN_WRITE_GAP_MS = 20 * 1000; // une écriture toutes les 20 s au plus par pseudo
+const SIGNUPS_PER_DAY = 5;          // nouveaux pseudos par jour et par adresse IP (réseau /64 en IPv6)
 
 // Champs de premier niveau acceptés : ceux de emptyProgress() dans game.js, plus gv.
 // Ajouter un champ à la sauvegarde du jeu = l'ajouter ici ET redéployer le Worker.
@@ -193,12 +194,25 @@ function fallbackRateLimit(key) {
   const now = Date.now();
   if (fallbackHits.size > FALLBACK_LIMIT.maxEntries) {
     for (const [k, v] of fallbackHits) if (now - v.start > FALLBACK_LIMIT.windowMs) fallbackHits.delete(k);
-    if (fallbackHits.size > FALLBACK_LIMIT.maxEntries) fallbackHits.clear();
+    // toujours trop d'adresses actives : on oublie les plus anciennes (ordre d'insertion), jamais tout
+    for (const k of fallbackHits.keys()) {
+      if (fallbackHits.size <= FALLBACK_LIMIT.maxEntries) break;
+      fallbackHits.delete(k);
+    }
   }
   const e = fallbackHits.get(key);
   if (!e || now - e.start > FALLBACK_LIMIT.windowMs) { fallbackHits.set(key, { start: now, n: 1 }); return true; }
   e.n++;
   return e.n <= FALLBACK_LIMIT.max;
+}
+
+// Adresse du client pour la limitation : en IPv6, un abonné dispose de tout un réseau /64 ;
+// on compte donc par /64 (sinon il suffirait de changer d'adresse pour contourner la limite).
+function clientKey(request) {
+  const ip = request.headers.get('cf-connecting-ip') || 'local';
+  if (!ip.includes(':')) return ip;
+  const parts = ip.split('::')[0].split(':');
+  return `${parts.slice(0, 4).join(':')}::/64`;
 }
 
 async function rateLimit(env, key) {
@@ -223,6 +237,13 @@ const BOAT_MAX = 5;
 const FISH_RE = /^[\p{L}\p{M} '’-]{0,40}$/u;
 const SCORE_GAP_MS = 30 * 1000;                     // inscription manuelle : une toutes les 30 s
 const LB_SIZE = 50;
+// Le score se déduit du temps de jeu déclaré par la sauvegarde : il doit donc rester crédible.
+// Première inscription : au plus FIRST_PLAYTIME_MAX. Ensuite, le temps de jeu ne peut pas augmenter
+// plus vite que le temps réel écoulé depuis le score précédent (+10 %, +5 min de marge).
+const FIRST_PLAYTIME_MAX = 150 * 3600;
+// Taille du carnet du jeu (dexTotal() dans game.js : chaque espèce et son abomination).
+// À METTRE À JOUR quand le jeu ajoute des poissons ou des crustacés, sinon leurs scores sont refusés.
+const DEX_MAX = 47;
 // catégories → colonne SQL (liste blanche : la colonne n'est jamais tirée de la requête)
 const LB_CATS = {
   earned: 'earned', heaviest: 'heaviest_kg', dex: 'dex', days: 'days', boat: 'boat', cthulhu: 'cthulhu',
@@ -255,7 +276,7 @@ function scoreProblem(s) {
   if (s.caught > s.casts) return 'plus de prises que de lancers';
   if (s.aboms > s.caught + 2000) return "nombre d'abominations incohérent";
   if (s.boat > BOAT_MAX) return 'niveau de bateau invalide';
-  if (s.dex > 200) return 'carnet incohérent';
+  if (s.dex > DEX_MAX) return 'carnet incohérent';
   if (s.cthulhu > s.caught) return 'plus de Grands Anciens que de prises';
   if (s.heaviestKg > 40000) return 'prise trop lourde pour être vraie';
   if (s.earned > 50000 + hours * 400000) return 'trop de pièces gagnées pour le temps de jeu';
@@ -265,9 +286,18 @@ function scoreProblem(s) {
   return null;
 }
 
+// Rythme du temps de jeu par rapport au temps réel (voir FIRST_PLAYTIME_MAX)
+async function timeProblem(env, name, s, now) {
+  const prev = await env.DB.prepare('SELECT play_time, updated_at FROM scores WHERE name = ?1').bind(name.id).first();
+  if (!prev) return s.playTime > FIRST_PLAYTIME_MAX ? 'temps de jeu trop élevé pour une première inscription' : null;
+  const allowed = prev.play_time + (Math.max(0, now - prev.updated_at) / 1000) * 1.1 + 300;
+  return s.playTime > allowed ? 'temps de jeu plus rapide que le temps réel' : null;
+}
+
 // Écriture « meilleur de chaque catégorie » (dans un UPDATE SQLite, les colonnes à droite des =
 // désignent toutes l'ancienne ligne : l'ordre des affectations n'a pas d'importance).
 function upsertScore(env, name, s, now) {
+  memCache.clear();                                // classement modifié : le cache de cette instance est périmé
   return env.DB.prepare(`INSERT INTO scores
       (name, display, earned, caught, aboms, dex, days, boat, cthulhu, play_time, heaviest_kg, heaviest_fish, version, updated_at)
     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
@@ -294,7 +324,7 @@ async function routeScore(request, env) {
   const now = Date.now();
   if (prev && now - prev.updated_at < SCORE_GAP_MS) fail(429, 'trop_tot', 'Score déjà envoyé il y a quelques secondes.');
   const s = scoreFromSave(JSON.parse(row.data), body.fish);
-  const why = scoreProblem(s);
+  const why = scoreProblem(s) || (await timeProblem(env, name, s, now));
   if (why) fail(422, 'score_refuse', `Score refusé : ${why}.`);
   await upsertScore(env, name, s, now);
   const me = await env.DB.prepare('SELECT earned FROM scores WHERE name = ?1').bind(name.id).first();
@@ -303,9 +333,25 @@ async function routeScore(request, env) {
   return { rank: rank.n + 1, total: total.n, earned: me.earned };
 }
 
+// Cache en mémoire par catégorie, propre à chaque instance du Worker : un afflux de visites ne
+// coûte qu'une poignée de lectures D1. (L'API Cache de Cloudflare n'agit pas sur *.workers.dev.)
+const memCache = new Map();                       // clé → { at, value }
+async function cached(key, ttlMs, make) {
+  const hit = memCache.get(key);
+  if (hit && Date.now() - hit.at < ttlMs) return hit.value;
+  const value = await make();
+  memCache.set(key, { at: Date.now(), value });
+  return value;
+}
+const LB_TTL_MS = 30 * 1000;
+const SVG_TTL_MS = 5 * 60 * 1000;
+
 async function routeLeaderboard(request, env) {
   const cat = new URL(request.url).searchParams.get('cat') || 'earned';
   if (!Object.hasOwn(LB_CATS, cat)) fail(400, 'categorie', 'Catégorie inconnue.');
+  return cached(`lb:${cat}`, LB_TTL_MS, () => leaderboardData(env, cat));
+}
+async function leaderboardData(env, cat) {
   const col = LB_CATS[cat];
   const { results } = await env.DB.prepare(
     `SELECT display, earned, caught, aboms, dex, days, boat, cthulhu, play_time, heaviest_kg, heaviest_fish, updated_at
@@ -350,6 +396,17 @@ const xmlEsc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<':
 async function routeLeaderboardSvg(request, env) {
   const cat = new URL(request.url).searchParams.get('cat') || 'earned';
   if (!Object.hasOwn(SVG_CATS, cat)) fail(400, 'categorie', 'Catégorie inconnue.');
+  const svg = await cached(`svg:${cat}`, SVG_TTL_MS, () => leaderboardSvg(env, cat));
+  return new Response(svg, {
+    headers: {
+      'content-type': 'image/svg+xml; charset=utf-8',
+      'cache-control': 'public, max-age=300',            // 5 minutes : le proxy d'images de GitHub s'y fie
+      'x-content-type-options': 'nosniff',
+      'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'",
+    },
+  });
+}
+async function leaderboardSvg(env, cat) {
   const c = SVG_CATS[cat];
   let rows = [], total = 0;
   try {
@@ -386,18 +443,27 @@ async function routeLeaderboardSvg(request, env) {
   ${lines}${empty}
   <text x="${W - 20}" y="${H - 14}" class="sub" text-anchor="end">Mis à jour toutes les 5 minutes environ</text>
 </svg>`;
-  return new Response(svg, {
-    headers: {
-      'content-type': 'image/svg+xml; charset=utf-8',
-      'cache-control': 'public, max-age=300',            // 5 minutes : le proxy d'images de GitHub s'y fie
-      'x-content-type-options': 'nosniff',
-      'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'",
-    },
-  });
+  return svg;
 }
 
 // --- Routes ---------------------------------------------------------------------------------
-async function routeSave(request, env) {
+// Quota de nouveaux pseudos par adresse IP et par jour. On ne garde qu'une empreinte tronquée de
+// l'adresse, salée par la date (elle change chaque jour) ; les lignes de plus d'un jour sont effacées.
+async function signupAllowed(env, ipKey, now) {
+  const day = Math.floor(now / 86400000);
+  const ipHash = (await sha256Hex(`lac-tranquille|${day}|${ipKey}`)).slice(0, 24);
+  try {
+    await env.DB.prepare('DELETE FROM signups WHERE day < ?1').bind(day - 1).run();
+    const row = await env.DB.prepare('SELECT n FROM signups WHERE ip_hash = ?1 AND day = ?2').bind(ipHash, day).first();
+    if (row && row.n >= SIGNUPS_PER_DAY) return false;
+    await env.DB.prepare(
+      'INSERT INTO signups (ip_hash, day, n) VALUES (?1, ?2, 1) ON CONFLICT(ip_hash, day) DO UPDATE SET n = n + 1',
+    ).bind(ipHash, day).run();
+  } catch { /* table absente (base pas encore migrée) : pas de quota plutôt qu'aucune sauvegarde */ }
+  return true;
+}
+
+async function routeSave(request, env, ipKey = 'local') {
   const body = await readJson(request, BODY_MAX);
   onlyFields(body, ['name', 'key', 'save', 'baseRev', 'fish']);
   const name = validName(body.name);
@@ -417,6 +483,10 @@ async function routeSave(request, env) {
 
   const row = await env.DB.prepare('SELECT key_hash, rev, updated_at FROM saves WHERE name = ?1').bind(name.id).first();
   if (!row) {
+    // l'appareil connaissait une révision : la sauvegarde a été supprimée (depuis un autre appareil).
+    // On ne la recrée pas en silence : le joueur doit relier cet appareil.
+    if (baseRev > 0) fail(410, 'supprimee', 'La sauvegarde en ligne de ce pseudo a été supprimée. Reliez cet appareil pour la recréer.');
+    if (!(await signupAllowed(env, ipKey, now))) fail(429, 'quota', 'Trop de nouveaux pseudos créés aujourd\'hui depuis cette connexion.');
     // pseudo libre : la place est réservée pour cette clé (INSERT seul : pas d'écrasement en course)
     const res = await env.DB.prepare(
       'INSERT OR IGNORE INTO saves (name, display, key_hash, data, gv, rev, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, ?6)',
@@ -441,7 +511,8 @@ async function routeSave(request, env) {
 async function saveScore(env, name, save, fish, now) {
   try {
     const s = scoreFromSave(save, fish);
-    if (scoreProblem(s)) return false;
+    // partie sans aucune prise : pas de ligne au classement (évite les pseudos vides qui le gonflent)
+    if (s.caught === 0 || scoreProblem(s) || (await timeProblem(env, name, s, now))) return false;
     await upsertScore(env, name, s, now);
     return true;
   } catch { return false; }
@@ -463,6 +534,7 @@ async function routeDelete(request, env) {
   await ownedRow(env, name, key);
   await env.DB.prepare('DELETE FROM saves WHERE name = ?1 AND key_hash = ?2').bind(name.id, await sha256Hex(key)).run();
   try { await env.DB.prepare('DELETE FROM scores WHERE name = ?1').bind(name.id).run(); } catch { /* pas de classement */ }
+  memCache.clear();                                // le joueur quitte le classement : cache périmé
   return { deleted: true };
 }
 
@@ -485,8 +557,8 @@ export default {
       if (!route) fail(404, 'route', 'Route inconnue.');
       const method = GET_ROUTES.has(url.pathname) ? 'GET' : 'POST';
       if (request.method !== method) fail(405, 'methode', `${method} attendu.`);
-      if (!NO_RATE_LIMIT.has(url.pathname)) await rateLimit(env, request.headers.get('cf-connecting-ip') || 'local');
-      const res = await route(request, env);
+      if (!NO_RATE_LIMIT.has(url.pathname)) await rateLimit(env, clientKey(request));
+      const res = await route(request, env, clientKey(request));
       return res instanceof Response ? res : json(200, res, cors);
     } catch (e) {
       if (e instanceof HttpError) return json(e.status, { error: e.code, message: e.message }, cors);

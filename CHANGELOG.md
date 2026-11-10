@@ -16,6 +16,41 @@ La partie est enregistrée **dans le navigateur, pour une adresse donnée**. Une
 
 ---
 
+## 1.7.1 — Une police plus lisible, et une série de corrections (11/11/2026)
+
+✅ **Sauvegarde conservée.**
+
+### Améliorations
+- **Nouvelle police d'écriture : Jersey 15**, à la place de Pixelify Sans. Toujours en pixel art, mais bien plus lisible : les chiffres ne se confondent plus (le 3, le 5 et le 2, le 8) et le texte se lit d'un trait. Accents, « Œ » et guillemets français compris.
+- La mise en page ne change pas : la police est mise à l'échelle pour occuper la même place que l'ancienne.
+- **Plus fluide** : les poissons du carnet, de la caisse relevée et de la carte de prise ne sont plus redessinés à chaque image (seules les abominations et le Grand Ancien s'animent), les effets de malédiction et le classement coûtent moins cher.
+
+### Corrections
+- **Copie de sécurité** : elle garde toujours la partie la plus avancée. Deux « Nouvelle partie » de suite ne peuvent plus effacer une vraie partie.
+- **Le Grand Ancien n'est plus relâché** quand la bourriche est pleine : il dépasse sa capacité.
+- **Succès « Double casier »** : il se débloque bien avec deux caisses à l'eau (il en demandait cinq depuis la 1.7.0).
+- **Profil** : il ne plante plus quand la plus grosse prise est un crustacé.
+- **Raccourcis clavier** : Ctrl+C, Ctrl+P, etc. ne déclenchent plus les raccourcis du jeu (Ctrl+C copie de nouveau la clé de sauvegarde). Ils sont aussi coupés dans l'éditeur de personnage, pour ne rien perdre.
+- **Malédictions** : une malédiction acceptée ne disparaît plus au rechargement, et le compte à rebours reste à jour panneau ouvert. Plus d'effets de malédiction sur l'introduction revue en pleine partie, et le tutoriel reprend ensuite.
+- **Sauvegarde en ligne** :
+  - deux appareils en conflit : le jeu demande désormais quelle version garder, au lieu d'écraser parfois l'autre appareil ;
+  - une sauvegarde en ligne supprimée n'est plus recréée par un autre appareil encore lié ;
+  - un envoi en cours ne mélange plus deux pseudos quand on délie l'appareil ;
+  - Safari 15 et plus ancien peuvent de nouveau charger le classement.
+- **Divers** : objets revendus faute de place comptés dans les statistiques, bric-à-brac et météo mieux relus depuis une sauvegarde importée, nom coupé sans casser d'emoji, son relancé après une interruption sur iPhone, petits défauts de dessin des tuiles du village.
+
+> **Mise à jour du serveur nécessaire.** Le serveur protège mieux le classement et les sauvegardes en ligne :
+> - le temps de jeu ne peut plus avancer plus vite que le temps réel, une première inscription est plafonnée à 150 h, le carnet à sa vraie taille, et une partie sans prise n'entre pas au classement ;
+> - au plus 5 nouveaux pseudos par jour et par connexion, envois limités à 64 Ko ;
+> - limite de débit comptée par réseau IPv6, classement gardé 30 s en mémoire (5 min pour l'image).
+>
+> 1. **Base** : *D1 › lac-tranquille-saves › Console*, collez **tout** `server/cloud-save/schema.sql`, puis *Execute* (ajoute la table `signups` et un index ; les données existantes ne bougent pas).
+> 2. **Worker** : collez le nouveau `server/cloud-save/worker.js` dans l'éditeur du Worker, puis *Deploy*.
+>
+> Dans cet ordre de préférence : sans la table, le serveur fonctionne quand même, mais sans quota de pseudos. Le nouveau serveur reste compatible avec les jeux 1.5 à 1.7.
+
+---
+
 ## 1.7.0 — Contre le Grand Ancien, carnet des trouvailles (10/11/2026)
 
 ✅ **Sauvegarde conservée.** Les objets déjà dans votre inventaire sont comptés comme découverts dans le carnet. Ceux que vous avez vendus avant cette version ne peuvent pas l'être : le jeu ne les retenait pas.

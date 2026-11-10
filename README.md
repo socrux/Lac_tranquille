@@ -110,5 +110,5 @@ Le détail de chaque version, avec ce qu'elle change pour votre sauvegarde, est 
 
 ## Crédits
 
-- Police **Pixelify Sans**, sous licence SIL Open Font License (voir [`fonts/OFL.txt`](fonts/OFL.txt)).
+- Police **Jersey 15** (The Soft Type Project), sous licence SIL Open Font License (voir [`fonts/OFL.txt`](fonts/OFL.txt)).
 - Tout le reste (code, graphismes, musique) est fait main, pixel par pixel et note par note.

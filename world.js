@@ -49,6 +49,7 @@ const FX_CMP = {
   legend:  { name: 'Légendaires',         mul: true },
   abomMul: { name: 'Abominations',        mul: true },
   cthulhu: { name: 'Grand Ancien',        mul: true },
+  vigorMul: { name: 'Vigueur des poissons', mul: true, inv: true },   // ×1,3 = poissons plus vigoureux (malus)
   cthVigor: { name: 'Vigueur du Grand Ancien', fmt: pctTxt, inv: true },
   cthBar:  { name: 'Barre contre le Grand Ancien', fmt: pctTxt },
 };
@@ -62,7 +63,7 @@ function fxDiff(newFx, oldFx = {}) {
     if (c.mul) {
       const a = oldFx[k] ?? 1, b = newFx[k] ?? 1;
       if (Math.abs(a - b) < 1e-9) continue;
-      out.push({ text: `${c.name} ×${numTxt(a)} → ×${numTxt(b)}`, good: b > a });
+      out.push({ text: `${c.name} ×${numTxt(a)} → ×${numTxt(b)}`, good: c.inv ? b < a : b > a });
       continue;
     }
     const d = (newFx[k] || 0) - (oldFx[k] || 0);
