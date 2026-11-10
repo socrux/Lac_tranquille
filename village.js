@@ -107,12 +107,20 @@ const NPC_BY_ID = Object.fromEntries(NPCS.map((n) => [n.id, n]));
 // Plan du village (480×270). Les zones servent aussi à placer les boutons cliquables.
 // ===========================================================================
 const VILLAGE_SPOTS = [
-  { npc: 'bank',  x: 52,  y: 58,  w: 92,  h: 82 },
-  { npc: 'bric',  x: 166, y: 52,  w: 84,  h: 88 },
-  { npc: 'fish',  x: 272, y: 62,  w: 82,  h: 78 },
-  { npc: 'yard',  x: 352, y: 150, w: 112, h: 78 },
-  { npc: 'witch', x: 18,  y: 160, w: 88,  h: 74 },
+  { npc: 'bank',  x: 26,  y: 20,  w: 108, h: 82 },
+  { npc: 'bric',  x: 186, y: 20,  w: 108, h: 82 },
+  { npc: 'fish',  x: 346, y: 20,  w: 108, h: 82 },
+  { npc: 'witch', x: 28,  y: 128, w: 92,  h: 78 },
+  { npc: 'yard',  x: 314, y: 124, w: 124, h: 90 },
 ];
+// Éléments animés du plan (dessinés par game.js à chaque image) : fumées, lampadaires, fontaine, lac
+const VILLAGE_FX = {
+  smoke: [{ x: 106, y: 18, col: '#d8dce0' }, { x: 214, y: 18, col: '#d8dce0' }, { x: 88, y: 130, col: '#b07ad8' }, { x: 410, y: 128, col: '#c8ccd0' }],
+  lamps: [{ x: 128, y: 92 }, { x: 350, y: 92 }, { x: 196, y: 150 }, { x: 284, y: 150 }],
+  fountain: { x: 240, y: 168 },
+  waterY: 224,
+  windows: [],              // vitres des maisons (remplies par buildVillageArt), allumées la nuit
+};
 
 // ===========================================================================
 // Cinématique d'ouverture. scene : décor (dessiné par game.js), text : narration.
@@ -130,109 +138,347 @@ const INTRO_SCENES = [
 // ===========================================================================
 // Décors en pixel art (dessinés une fois, mis en cache par l'appelant)
 // ===========================================================================
-function vRoof(c, x, y, w, h, col) {
-  for (let i = 0; i < h; i++) pxRect(c, x - h + i, y + i, w + 2 * (h - i), 1, i === 0 ? shadeHex(col, 1.3) : i % 3 === 0 ? shadeHex(col, 0.8) : col);
+// ---------------------------------------------------------------------------
+// Direction artistique du village : vue de dessus « trois quarts », fixe, en tuiles de 16 px,
+// dans l'esprit des villes de RPG en pixel art (dessin original).
+//  - lumière en haut à gauche, ombres portées vers le bas-droite (noir à 25 %) ;
+//  - un seul contour sombre (VPAL.out) autour des objets ;
+//  - 3 tons par matière (ombre, base, lumière), palette fraîche et saturée.
+// ---------------------------------------------------------------------------
+const VT = 16;
+const VCOLS = 30, VROWS = 17;
+const VPAL = {
+  out: '#2a2230',
+  grass: '#84c46a', grassD: '#68a854', grassL: '#a8dc8a',
+  dark: '#5e7e5a', darkD: '#486446', darkL: '#7a9a6c',
+  tall: '#4e9a48', tallD: '#3a7c38', tallL: '#78c060',
+  path: '#e4cc94', pathD: '#c4a46c', pathL: '#f4e0b0',
+  stone: '#d2cab8', stoneD: '#a89e8a', stoneL: '#ece6d8',
+  sand: '#f0dea0', sandD: '#d8c07c',
+  water: '#4c9ee2', waterD: '#3a82c6', waterL: '#92d0f6', foam: '#eef8ff',
+  wood: '#a86e3c', woodD: '#764a28', woodL: '#cc945a',
+  leaf: '#3e8c46', leafD: '#2a6634', leafL: '#5eae58', leafH: '#90cc6c', trunk: '#7a4a28',
+};
+const vHash = (x, y) => (((x * 73856093) ^ (y * 19349663)) >>> 0);
+// rectangle avec contour (le contour déborde d'un pixel)
+function oRect(c, x, y, w, h, col) {
+  pxRect(c, x - 1, y - 1, w + 2, h + 2, VPAL.out);
+  pxRect(c, x, y, w, h, col);
 }
-function vWindow(c, x, y, lit = false) {
-  pxRect(c, x, y, 8, 9, '#3a2a1c');
-  pxRect(c, x + 1, y + 1, 6, 7, lit ? '#ffd88a' : '#8ac0e8');
-  pxRect(c, x + 4, y + 1, 1, 7, '#3a2a1c');
-  pxRect(c, x + 1, y + 4, 6, 1, '#3a2a1c');
+function shadow(c, x, y, w, h) {
+  c.globalAlpha = 0.25;
+  pxRect(c, x, y, w, h, '#1a2a12');
+  c.globalAlpha = 1;
 }
-function vDoor(c, x, y, col = '#6e4422') {
-  pxRect(c, x, y, 10, 16, col);
-  pxRect(c, x + 1, y + 1, 8, 15, shadeHex(col, 1.2));
-  pxRect(c, x + 7, y + 8, 1, 2, '#f5d04a');
+
+// --- sol : type de chaque tuile (30 × 17)
+function villageGround() {
+  const g = Array.from({ length: VROWS }, () => Array(VCOLS).fill('grass'));
+  const fill = (c0, r0, w, h, t) => {
+    for (let r = r0; r < r0 + h; r++) for (let c = c0; c < c0 + w; c++) if (g[r] && c >= 0 && c < VCOLS) g[r][c] = t;
+  };
+  fill(1, 9, 9, 4, 'dark');                        // le coin de la sorcière
+  fill(8, 10, 3, 3, 'tall');                       // hautes herbes
+  fill(18, 11, 2, 2, 'tall');
+  fill(0, 7, VCOLS, 2, 'path');                    // la grand-rue
+  for (const c0 of [4, 14, 24]) fill(c0, 6, 2, 1, 'path');   // allées devant les portes
+  fill(12, 9, 6, 4, 'plaza');                      // la place de la fontaine
+  fill(0, 13, VCOLS, 1, 'sand');                   // la plage
+  fill(14, 13, 2, 1, 'path');
+  fill(0, 14, VCOLS, 3, 'water');                  // le lac
+  return g;
 }
-function vSign(c, x, y, w, col, ink) {
-  pxRect(c, x, y, w, 9, col);
-  pxRect(c, x, y + 8, w, 1, shadeHex(col, 0.6));
-  if (ink) ink(c, x, y);
+
+function drawGroundTile(c, g, col, row) {
+  const t = g[row][col], x = col * VT, y = row * VT, h = vHash(col + 7, row + 3);
+  const at = (cc, rr) => (g[rr] && g[rr][cc]) || t;
+  const walk = (k) => k === 'path' || k === 'plaza';
+  if (t === 'grass' || t === 'dark') {
+    const [b, d, l] = t === 'dark' ? [VPAL.dark, VPAL.darkD, VPAL.darkL] : [VPAL.grass, VPAL.grassD, VPAL.grassL];
+    pxRect(c, x, y, VT, VT, b);
+    for (let k = 0; k < 2; k++) {                  // petites touffes en « v »
+      const hx = x + 2 + ((h >> (k * 6)) % 11), hy = y + 3 + ((h >> (k * 6 + 3)) % 10);
+      pxRect(c, hx, hy, 1, 2, d); pxRect(c, hx + 2, hy, 1, 2, d); pxRect(c, hx + 1, hy - 1, 1, 2, d); pxRect(c, hx + 1, hy - 1, 1, 1, l);
+    }
+    if (h % 9 === 0) {                              // une fleur de temps en temps
+      const fc = t === 'dark' ? '#b07ad8' : ['#f4f0e6', '#f5d04a', '#f08aa0'][h % 3];
+      const fx = x + 3 + (h % 9), fy = y + 4 + ((h >> 4) % 8);
+      pxRect(c, fx - 1, fy, 3, 1, fc); pxRect(c, fx, fy - 1, 1, 3, fc); pxRect(c, fx, fy, 1, 1, '#f5d04a');
+    }
+  } else if (t === 'tall') {
+    pxRect(c, x, y, VT, VT, VPAL.tall);
+    for (let i = 0; i < 4; i++) {
+      for (let j = 0; j < 2; j++) {
+        const bx = x + i * 4 + (j % 2) * 2, by = y + j * 8;
+        pxRect(c, bx, by + 3, 1, 5, VPAL.tallD); pxRect(c, bx + 2, by + 3, 1, 5, VPAL.tallD);
+        pxRect(c, bx + 1, by + 1, 1, 6, VPAL.tallL);
+      }
+    }
+  } else if (t === 'path') {
+    pxRect(c, x, y, VT, VT, VPAL.path);
+    if (h % 3 === 0) pxRect(c, x + (h % 12) + 1, y + ((h >> 3) % 12) + 2, 2, 1, VPAL.pathD);
+    if (h % 4 === 1) pxRect(c, x + ((h >> 2) % 12) + 2, y + ((h >> 5) % 12) + 1, 1, 1, VPAL.pathL);
+    // bordure : l'herbe déborde un peu sur le chemin
+    if (!walk(at(col, row - 1))) { pxRect(c, x, y, VT, 1, VPAL.grassD); pxRect(c, x, y + 1, VT, 1, VPAL.pathD); }
+    if (!walk(at(col, row + 1)) && at(col, row + 1) !== 'sand') pxRect(c, x, y + VT - 1, VT, 1, VPAL.pathD);
+    if (!walk(at(col - 1, row))) pxRect(c, x, y, 1, VT, VPAL.pathD);
+    if (!walk(at(col + 1, row))) pxRect(c, x + VT - 1, y, 1, VT, VPAL.pathD);
+  } else if (t === 'plaza') {                       // pavés, joints décalés une rangée sur deux
+    pxRect(c, x, y, VT, VT, VPAL.stone);
+    for (let r = 0; r < 2; r++) {
+      const off = ((row * 2 + r) % 2) * 4;
+      pxRect(c, x, y + r * 8 + 7, VT, 1, VPAL.stoneD);
+      for (let cc = off; cc < VT; cc += 8) pxRect(c, x + cc, y + r * 8, 1, 7, VPAL.stoneD);
+      for (let cc = off; cc < VT; cc += 8) pxRect(c, x + cc + 1, y + r * 8, 5, 1, VPAL.stoneL);
+    }
+  } else if (t === 'sand') {
+    pxRect(c, x, y, VT, VT, VPAL.sand);
+    for (let k = 0; k < 3; k++) pxRect(c, x + ((h >> (k * 4)) % 15), y + 3 + ((h >> (k * 4 + 2)) % 12), 1, 1, VPAL.sandD);
+    if (at(col, row - 1) === 'grass' || at(col, row - 1) === 'dark') {   // bord d'herbe ondulé
+      for (let i = 0; i < VT; i++) pxRect(c, x + i, y, 1, 2 + ((i + col) % 3 === 0 ? 1 : 0), VPAL.grassD);
+    }
+  } else if (t === 'water') {
+    pxRect(c, x, y, VT, VT, row >= 15 ? VPAL.waterD : VPAL.water);
+    if (row === 15) for (let i = 0; i < VT; i += 2) pxRect(c, x + i + (row % 2), y, 1, 1, VPAL.water);   // transition tramée
+    pxRect(c, x + (h % 10) + 1, y + 4 + ((h >> 4) % 8), 4, 1, VPAL.waterL);                                // reflets
+    if (at(col, row - 1) !== 'water') { pxRect(c, x, y, VT, 2, VPAL.foam); pxRect(c, x, y + 2, VT, 1, VPAL.waterL); }
+  }
 }
+
+// --- objets du décor
+function vTreeTop(c, cx, cy) {
+  c.globalAlpha = 0.28;
+  pxEllipse(c, cx + 3, cy + 15, 13, 4, '#1a2a12');
+  c.globalAlpha = 1;
+  pxRect(c, cx - 4, cy + 6, 8, 10, VPAL.out);
+  pxRect(c, cx - 3, cy + 6, 6, 9, VPAL.trunk);
+  pxRect(c, cx - 3, cy + 6, 2, 9, shadeHex(VPAL.trunk, 1.3));
+  pxDisk(c, cx, cy, 13, VPAL.out);
+  pxDisk(c, cx, cy, 12, VPAL.leafD);
+  pxDisk(c, cx - 1, cy - 2, 10, VPAL.leaf);
+  pxDisk(c, cx - 4, cy - 5, 6, VPAL.leafL);
+  pxDisk(c, cx - 5, cy - 7, 2, VPAL.leafH);
+  for (let k = 0; k < 5; k++) pxRect(c, cx - 7 + ((k * 5) % 13), cy - 1 + ((k * 7) % 8), 2, 1, VPAL.leafD);   // feuillage
+}
+function vWin(c, x, y, glass = '#8ccaf2') {
+  oRect(c, x, y, 12, 10, '#f4f0e6');
+  pxRect(c, x + 1, y + 1, 10, 8, glass);
+  pxRect(c, x + 1, y + 6, 10, 2, shadeHex(glass, 0.8));
+  pxRect(c, x + 2, y + 2, 2, 1, '#ffffff'); pxRect(c, x + 2, y + 3, 1, 1, '#ffffff');
+  pxRect(c, x + 6, y + 1, 1, 8, '#f4f0e6'); pxRect(c, x + 1, y + 5, 10, 1, '#f4f0e6');
+  oRect(c, x - 1, y + 11, 14, 3, VPAL.woodD);                      // jardinière
+  for (let i = 0; i < 5; i++) pxRect(c, x + i * 3, y + 10, 2, 2, i % 2 ? '#f08aa0' : '#f4f0e6');
+}
+// Maison vue de 3/4 : toit (pente avant) en haut, façade en bas avec porte centrale et fenêtres
+function vHouse(c, x, y, w, h, o) {
+  const roofH = Math.round(h * 0.5), wy = y + roofH, wh = h - roofH;
+  shadow(c, x + 4, y + h, w, 5);
+  shadow(c, x + w + 2, y + 8, 5, h - 3);
+  oRect(c, x + 2, wy, w - 4, wh, o.wall);                          // façade
+  if (o.stone) {
+    for (let r = 3; r < wh; r += 5) pxRect(c, x + 2, wy + r, w - 4, 1, shadeHex(o.wall, 0.86));
+    for (let r = 0; r < wh; r += 5) for (let cc = ((r / 5) % 2) * 5; cc < w - 4; cc += 10) pxRect(c, x + 2 + cc, wy + r, 1, 4, shadeHex(o.wall, 0.86));
+  } else {
+    for (let r = 3; r < wh; r += 4) pxRect(c, x + 2, wy + r, w - 4, 1, shadeHex(o.wall, 0.9));
+  }
+  pxRect(c, x + 2, wy, 2, wh, shadeHex(o.wall, 1.12));
+  pxRect(c, x + w - 4, wy, 2, wh, shadeHex(o.wall, 0.82));
+  pxRect(c, x + 2, wy, w - 4, 3, shadeHex(o.wall, 0.7));            // ombre sous l'avant-toit
+  pxRect(c, x + 2, y + h - 2, w - 4, 2, shadeHex(o.wall, 0.6));     // soubassement
+  for (const dx of o.windows) {
+    vWin(c, x + dx, wy + 7, o.glass);
+    VILLAGE_FX.windows.push({ x: x + dx + 1, y: wy + 8, w: 10, h: 8, col: o.glass === '#7af0a0' ? '#7af0a0' : '#ffd88a' });
+  }
+  const dx = x + Math.floor(w / 2) - 7;                             // porte et marche
+  oRect(c, dx, y + h - 17, 14, 17, o.door);
+  pxRect(c, dx + 1, y + h - 16, 5, 15, shadeHex(o.door, 1.18));
+  pxRect(c, dx + 8, y + h - 16, 5, 15, shadeHex(o.door, 1.18));
+  pxRect(c, dx + 10, y + h - 9, 2, 2, '#f5d04a');
+  oRect(c, dx - 2, y + h + 1, 18, 3, VPAL.stoneD);
+  pxRect(c, dx - 2, y + h + 1, 18, 1, VPAL.stoneL);
+  if (o.extra) o.extra(c, x, y, w, h, wy, wh);
+  if (o.chimney != null) {                                          // cheminée
+    const cx = x + o.chimney;
+    oRect(c, cx, y - 8, 9, 12, o.chimneyCol || '#a87060');
+    pxRect(c, cx, y - 8, 9, 2, '#5a3a30');
+    pxRect(c, cx, y - 6, 2, 10, shadeHex(o.chimneyCol || '#a87060', 1.2));
+  }
+  pxRect(c, x - 4, y - 1, w + 8, roofH + 2, VPAL.out);              // toit
+  for (let r = 0; r < roofH; r++) {
+    const col = r === 0 ? shadeHex(o.roof, 1.4) : r % 4 === 3 ? shadeHex(o.roof, 0.78) : r < roofH / 2 ? shadeHex(o.roof, 1.08) : o.roof;
+    pxRect(c, x - 3, y + r, w + 6, 1, col);
+  }
+  for (let r = 3; r < roofH - 1; r += 4) {                           // tuiles décalées
+    for (let cc = ((r >> 2) % 2) * 4; cc < w + 5; cc += 8) pxRect(c, x - 3 + cc, y + r - 3, 1, 3, shadeHex(o.roof, 0.86));
+  }
+  pxRect(c, x - 3, y, 2, roofH, shadeHex(o.roof, 1.22));
+  pxRect(c, x + w + 1, y, 2, roofH, shadeHex(o.roof, 0.72));
+  pxRect(c, x - 3, y + roofH - 1, w + 6, 1, shadeHex(o.roof, 0.55));
+  if (o.chimney != null) {                                          // la cheminée dépasse du toit
+    const cx = x + o.chimney;
+    oRect(c, cx, y - 8, 9, 7, o.chimneyCol || '#a87060');
+    pxRect(c, cx, y - 8, 9, 2, '#5a3a30');
+  }
+  if (o.sign) {                                                     // enseigne au bord du toit
+    const sx = x + Math.floor(w / 2) - 13, sy = wy - 6;
+    oRect(c, sx, sy, 26, 11, o.signCol);
+    pxRect(c, sx, sy, 26, 1, shadeHex(o.signCol, 1.3));
+    o.sign(c, sx, sy);
+  }
+}
+function vFence(c, x0, x1, y) {
+  pxRect(c, x0, y + 3, x1 - x0, 2, VPAL.out);
+  pxRect(c, x0, y + 3, x1 - x0, 1, '#f4f0e6');
+  for (let x = x0; x <= x1 - 3; x += 6) { oRect(c, x, y, 3, 9, '#f4f0e6'); pxRect(c, x + 2, y + 1, 1, 8, '#c8c4bc'); }
+}
+function vFlowers(c, x, y, col) {
+  for (const [dx, dy] of [[0, 0], [5, 2], [2, 5], [8, 6]]) {
+    pxRect(c, x + dx, y + dy + 2, 1, 2, VPAL.grassD);
+    pxRect(c, x + dx - 1, y + dy, 3, 1, col); pxRect(c, x + dx, y + dy - 1, 1, 3, col); pxRect(c, x + dx, y + dy, 1, 1, '#f5d04a');
+  }
+}
+function vBarrel(c, x, y) {
+  shadow(c, x + 2, y + 10, 10, 3);
+  oRect(c, x, y, 10, 12, VPAL.wood);
+  pxRect(c, x, y + 2, 10, 1, '#5a5a62'); pxRect(c, x, y + 8, 10, 1, '#5a5a62');
+  pxRect(c, x + 1, y, 2, 12, VPAL.woodL);
+  pxRect(c, x, y, 10, 2, VPAL.woodD);
+}
+function vCrate(c, x, y) {
+  shadow(c, x + 2, y + 10, 12, 3);
+  oRect(c, x, y, 12, 11, VPAL.woodL);
+  pxRect(c, x, y, 12, 2, shadeHex(VPAL.woodL, 1.15));
+  pxRect(c, x, y + 5, 12, 1, VPAL.woodD);
+  pxLine(c, x + 1, y + 10, x + 10, y + 2, VPAL.woodD);
+}
+function vLamp(c, x, y) {
+  shadow(c, x + 1, y + 20, 6, 2);
+  oRect(c, x, y + 4, 2, 17, '#3a3a44');
+  oRect(c, x - 2, y, 6, 5, '#3a3a44');
+  pxRect(c, x - 1, y + 1, 4, 3, '#ffe9a0');
+}
+function vBench(c, x, y) {
+  shadow(c, x + 2, y + 8, 22, 3);
+  oRect(c, x, y, 22, 4, VPAL.wood);
+  pxRect(c, x, y, 22, 1, VPAL.woodL);
+  oRect(c, x, y + 5, 22, 3, VPAL.woodD);
+  for (const dx of [1, 19]) pxRect(c, x + dx, y + 8, 2, 3, VPAL.out);
+}
+
+// Le village : sol en tuiles, puis les objets, dessinés du haut vers le bas (profondeur)
+function buildVillageArt() {
+  const cv = makeCanvas(480, 270);
+  const c = cv.getContext('2d');
+  const g = villageGround();
+  VILLAGE_FX.windows.length = 0;
+  for (let r = 0; r < VROWS; r++) for (let col = 0; col < VCOLS; col++) drawGroundTile(c, g, col, r);
+
+  // --- lisière de forêt en haut et sur les côtés (la grand-rue sort du plan à gauche et à droite)
+  for (let i = -1; i < 32; i++) vTreeTop(c, i * 16, -6);
+  for (let i = -1; i < 32; i++) vTreeTop(c, i * 16 + 8, 6);
+  for (const y of [34, 54, 74, 94]) { vTreeTop(c, 4, y); vTreeTop(c, 476, y); }
+  for (const y of [158, 178]) vTreeTop(c, 476, y);
+  vTreeTop(c, 4, 160);
+
+  // --- la banque : pierre de taille, toit d'ardoise, colonnes
+  vHouse(c, 32, 30, 96, 64, {
+    roof: '#5e74a0', wall: '#e8e0ce', stone: true, door: '#6a4430', windows: [10, 26, 58, 74], chimney: 70,
+    signCol: '#2a3a6a', sign: (cc, sx, sy) => { pxDisk(cc, sx + 13, sy + 5, 3, '#f5d04a'); pxRect(cc, sx + 12, sy + 3, 2, 4, '#c8962e'); },
+    extra: (cc, x, y, w, h) => { for (const dx of [36, 56]) { oRect(cc, x + dx, y + h - 26, 4, 25, '#f4f0e6'); pxRect(cc, x + dx + 3, y + h - 26, 1, 25, '#c8c0b0'); } },
+  });
+  // --- le bric-à-brac : toit orangé, auvent rayé, bric et broc devant
+  vHouse(c, 192, 30, 96, 64, {
+    roof: '#e0743a', wall: '#f2deb2', door: '#6a3a7a', windows: [8, 76], chimney: 14, glass: '#a8d8f0',
+    signCol: '#6a3a7a', sign: (cc, sx, sy) => { pxRect(cc, sx + 6, sy + 3, 6, 5, '#f5d04a'); pxRect(cc, sx + 14, sy + 2, 3, 6, '#e8a0b0'); pxRect(cc, sx + 19, sy + 4, 3, 3, '#8ac0e8'); },
+    extra: (cc, x, y, w, h, wy) => {                       // auvent rayé au-dessus des fenêtres
+      for (const ax of [x + 4, x + w - 26]) {
+        pxRect(cc, ax - 1, wy + 2, 24, 7, VPAL.out);
+        for (let i = 0; i < 22; i += 4) pxRect(cc, ax + i, wy + 3, 2, 5, '#d8443a');
+        for (let i = 2; i < 22; i += 4) pxRect(cc, ax + i, wy + 3, 2, 5, '#f4f0e6');
+        for (let i = 0; i < 22; i += 4) pxRect(cc, ax + i, wy + 8, 3, 1, '#d8443a');
+      }
+    },
+  });
+  vBarrel(c, 172, 82); vCrate(c, 300, 84); vBarrel(c, 302, 72);
+  // --- la poissonnerie : bardage bleu clair, toit turquoise, étal de poissons
+  vHouse(c, 352, 30, 96, 64, {
+    roof: '#2f9aa6', wall: '#e2eef4', door: '#2f5f92', windows: [8, 76], chimney: 72,
+    signCol: '#2f6fb0', sign: (cc, sx, sy) => {
+      pxEllipse(cc, sx + 13, sy + 5, 7, 3, '#dfe8ee'); pxRect(cc, sx + 4, sy + 3, 3, 5, '#c0ccd4'); pxRect(cc, sx + 17, sy + 4, 1, 1, '#1e140c');
+    },
+  });
+  oRect(c, 336, 80, 14, 10, VPAL.woodL);                      // étal : glace et poissons
+  pxRect(c, 337, 80, 12, 4, '#e8f6ff');
+  for (const dx of [338, 342, 346]) pxEllipse(c, dx, 81, 2, 1, '#8aa0b0');
+  // --- jardins et clôtures entre les maisons, lampadaires, fleurs
+  vFence(c, 136, 186, 86); vFence(c, 296, 344, 98);
+  vFlowers(c, 142, 74, '#f08aa0'); vFlowers(c, 160, 76, '#f5d04a');
+  vFlowers(c, 54, 98, '#f4f0e6'); vFlowers(c, 98, 98, '#f08aa0'); vFlowers(c, 372, 98, '#f5d04a'); vFlowers(c, 420, 98, '#f4f0e6');
+  for (const l of VILLAGE_FX.lamps) vLamp(c, l.x, l.y);
+
+  // --- la place et sa fontaine, bancs
+  const fx = VILLAGE_FX.fountain.x, fy = VILLAGE_FX.fountain.y;
+  c.globalAlpha = 0.25; pxEllipse(c, fx + 3, fy + 6, 24, 9, '#1a2a12'); c.globalAlpha = 1;
+  pxEllipse(c, fx, fy, 24, 11, VPAL.out);
+  pxEllipse(c, fx, fy, 23, 10, VPAL.stoneL);
+  pxEllipse(c, fx, fy + 1, 19, 7, VPAL.stoneD);
+  pxEllipse(c, fx, fy + 1, 18, 6, VPAL.water);
+  pxEllipse(c, fx - 4, fy - 1, 8, 2, VPAL.waterL);
+  oRect(c, fx - 3, fy - 12, 6, 13, VPAL.stone);
+  pxRect(c, fx - 3, fy - 12, 2, 13, VPAL.stoneL);
+  pxEllipse(c, fx, fy - 13, 7, 3, VPAL.out); pxEllipse(c, fx, fy - 13, 6, 2, VPAL.stoneL); pxRect(c, fx - 3, fy - 14, 6, 1, VPAL.waterL);
+  vBench(c, 200, 186); vBench(c, 258, 186);
+
+  // --- la cabane de la sorcière : bois sombre, toit de chaume rapiécé, fenêtre verte, chaudron
+  vHouse(c, 36, 140, 72, 60, {
+    roof: '#5c3e5a', wall: '#5a4a4c', door: '#3a2a3a', windows: [6], chimney: 48, chimneyCol: '#5a4a44', glass: '#7af0a0',
+    extra: (cc, x, y, w, h, wy) => { for (const [px, py] of [[50, 10], [56, 16]]) pxRect(cc, x + px, wy + py, 6, 6, '#3a3040'); },
+  });
+  for (const [px, py, s] of [[44, 146, 8], [72, 152, 6], [58, 158, 7]]) pxRect(c, px, py, s, 4, '#7a5a78');   // rapiéçages du toit
+  shadow(c, 114, 196, 14, 3);
+  pxEllipse(c, 120, 192, 8, 6, VPAL.out); pxEllipse(c, 120, 192, 7, 5, '#3a2a4a');          // chaudron
+  pxEllipse(c, 120, 188, 6, 2, '#7af0a0'); pxRect(c, 117, 187, 2, 1, '#c8ffd8');
+  for (const [mx, my] of [[16, 200], [128, 206], [22, 146]]) {                               // champignons
+    oRect(c, mx + 1, my + 3, 2, 3, '#f4f0e6'); pxEllipse(c, mx + 2, my + 2, 3, 2, '#b04a8a'); pxRect(c, mx + 1, my + 1, 1, 1, '#f4f0e6');
+  }
+  pxRect(c, 136, 132, 3, 26, VPAL.out); pxRect(c, 137, 132, 1, 25, '#6a5a5a');              // arbre mort
+  pxLine(c, 137, 140, 128, 132, '#4a3a3a'); pxLine(c, 137, 146, 146, 136, '#4a3a3a'); pxLine(c, 133, 136, 130, 128, '#4a3a3a');
+
+  // --- le chantier naval : grand hangar ouvert sur le lac, coque sur cale, planches et ancre
+  vHouse(c, 320, 136, 112, 72, {
+    roof: '#a64c2c', wall: '#c08a52', door: '#3a2a20', windows: [8, 92], chimney: 82, chimneyCol: '#8a8a90',
+    signCol: '#5e3a1e', sign: (cc, sx, sy) => { pxRect(cc, sx + 5, sy + 4, 16, 2, '#d8c49a'); pxRect(cc, sx + 11, sy + 2, 4, 6, '#d8c49a'); },
+    extra: (cc, x, y, w, h, wy) => {                       // la grande porte ouverte et la coque en réparation
+      oRect(cc, x + 34, wy + 3, 44, h - (wy - y) - 3, '#2a1e18');
+      pxRect(cc, x + 40, wy + 18, 32, 8, '#c64a35'); pxRect(cc, x + 42, wy + 26, 28, 3, '#8e2f22'); pxRect(cc, x + 40, wy + 18, 32, 2, '#f0ece0');
+    },
+  });
+  for (const rx of [362, 386]) { pxRect(c, rx, 212, 2, 26, VPAL.woodD); }                    // rails de mise à l'eau
+  for (let ry = 214; ry < 238; ry += 5) pxRect(c, 360, ry, 30, 1, VPAL.wood);
+  for (let i = 0; i < 4; i++) oRect(c, 440 + (i % 2) * 2, 176 + i * 4, 24, 3, i % 2 ? VPAL.woodL : VPAL.wood);   // pile de planches
+  oRect(c, 302, 204, 3, 14, '#5a5a62'); pxRect(c, 297, 216, 13, 2, '#5a5a62'); pxRect(c, 298, 206, 11, 1, '#5a5a62');   // ancre sur la plage
+  vCrate(c, 444, 196);
+
+  // --- le ponton et la barque de grand-père
+  shadow(c, 228, 222, 30, 40);
+  oRect(c, 224, 214, 32, 56, VPAL.woodL);
+  for (let y = 214; y < 270; y += 5) pxRect(c, 224, y, 32, 1, VPAL.woodD);
+  for (const [px, py] of [[224, 222], [252, 222], [224, 254], [252, 254]]) oRect(c, px, py, 4, 4, VPAL.woodD);
+  shadow(c, 266, 244, 34, 5);
+  pxEllipse(c, 280, 240, 17, 7, VPAL.out); pxEllipse(c, 280, 240, 16, 6, VPAL.wood);                // barque
+  pxEllipse(c, 280, 240, 13, 4, VPAL.woodD); pxRect(c, 278, 236, 3, 9, VPAL.woodL);
+  pxLine(c, 263, 238, 256, 236, '#d8c49a');                                                     // amarre
+  for (const [lx, ly] of [[60, 236], [104, 250], [412, 244], [150, 258]]) {                       // nénuphars
+    pxEllipse(c, lx, ly, 5, 3, '#2f7a3a'); pxEllipse(c, lx - 1, ly - 1, 4, 2, '#4caa4a'); pxRect(c, lx + 1, ly - 2, 2, 2, '#f0a0c0');
+  }
+  return cv;
+}
+
 function vTree(c, x, y, r = 9) {
   pxRect(c, x - 2, y, 4, 14, '#6e4422');
   pxDisk(c, x, y - 4, r, '#2f7a2e');
   pxDisk(c, x - 2, y - 6, r - 3, '#3f9a3a');
   pxDisk(c, x - 3, y - 8, 3, '#5cbc4a');
-}
-
-// Le village vu de haut (un peu en perspective), avec le lac en bas
-function buildVillageArt() {
-  const cv = makeCanvas(480, 270);
-  const c = cv.getContext('2d');
-  ditherGradient(c, 0, 0, 480, 40, ['#5a8fe4', '#a8d2f8', '#d2ecfc']);
-  for (let x = 0; x < 480; x++) {                                  // collines
-    const h = Math.round(30 + 8 * Math.sin(x * 0.02) + 4 * Math.sin(x * 0.07));
-    pxRect(c, x, h, 1, 50 - h, '#3f8a4a');
-  }
-  pxRect(c, 0, 46, 480, 196, '#6ab04a');                           // herbe
-  for (let i = 0; i < 260; i++) {
-    const x = (i * 97) % 480, y = 50 + ((i * 53) % 190);
-    pxRect(c, x, y, 2, 1, i % 3 ? '#5a9a3e' : '#86c860');
-  }
-  // chemins
-  c.fillStyle = '#c8a06a';
-  for (let y = 140; y < 160; y++) pxRect(c, 0, y, 480, 1, (y % 5) ? '#c8a06a' : '#b88e58');
-  for (let x = 228; x < 248; x++) pxRect(c, x, 140, 1, 100, x % 5 ? '#c8a06a' : '#b88e58');
-  pxRect(c, 300, 158, 90, 10, '#c8a06a');
-  // lac et ponton
-  ditherGradient(c, 0, 240, 480, 30, ['#86cff2', '#3384c4', '#1b4c86']);
-  pxRect(c, 0, 240, 480, 1, '#c4ecff');
-  pxRect(c, 226, 232, 24, 30, '#9a6236');
-  for (let y = 234; y < 262; y += 4) pxRect(c, 226, y, 24, 1, '#6e4422');
-  pxRect(c, 254, 248, 34, 6, '#9a6236');                            // la barque de grand-père
-  pxRect(c, 256, 254, 30, 2, '#6e4422');
-
-  // --- banque (pierre, colonnes)
-  vRoof(c, 60, 58, 76, 14, '#5a5a6a');
-  pxRect(c, 58, 72, 80, 66, '#d8d0c0');
-  pxRect(c, 58, 72, 80, 3, '#ece4d4');
-  for (const x of [64, 84, 104, 124]) pxRect(c, x, 80, 6, 50, '#ece4d4');
-  vDoor(c, 93, 122, '#4a3a2a');
-  vSign(c, 74, 75, 48, '#2a2a40', (cc, x, y) => { pxRect(cc, x + 20, y + 2, 8, 5, '#f5d04a'); pxRect(cc, x + 23, y + 2, 2, 5, '#c8962e'); });
-  // --- bric-à-brac (façade colorée, auvent rayé)
-  vRoof(c, 170, 52, 76, 12, '#8a3a5a');
-  pxRect(c, 170, 64, 76, 74, '#e8c890');
-  for (let x = 166; x < 250; x += 6) pxRect(c, x, 96, 3, 8, '#c0508a');
-  pxRect(c, 166, 96, 84, 2, '#8a3a5a');
-  for (let x = 169; x < 250; x += 6) pxRect(c, x, 96, 3, 8, '#f0ece0');
-  vWindow(c, 178, 106); vWindow(c, 226, 106);
-  vDoor(c, 203, 122, '#5a3a6a');
-  vSign(c, 180, 72, 56, '#5a3a6a', (cc, x, y) => { pxDisk(cc, x + 14, y + 4, 3, '#f5d04a'); pxRect(cc, x + 24, y + 3, 10, 3, '#e8a0b0'); pxRect(cc, x + 38, y + 2, 4, 5, '#8ac0e8'); });
-  pxRect(c, 252, 124, 8, 14, '#9a6236');                           // tonneau
-  pxRect(c, 252, 128, 8, 1, '#5a5a62');
-  // --- poissonnerie (bleu et blanc, enseigne poisson)
-  vRoof(c, 276, 62, 74, 12, '#2a4a8a');
-  pxRect(c, 276, 74, 74, 64, '#f0ece0');
-  for (let x = 276; x < 350; x += 8) pxRect(c, x, 74, 4, 64, '#d8e4ec');
-  vWindow(c, 284, 98); vWindow(c, 334, 98);
-  vDoor(c, 308, 122, '#2a4a8a');
-  vSign(c, 290, 80, 46, '#3a72c8', (cc, x, y) => { pxEllipse(cc, x + 23, y + 4, 9, 3, '#c8d4dc'); pxRect(cc, x + 11, y + 2, 3, 5, '#a8b4bc'); pxRect(cc, x + 28, y + 3, 1, 1, '#1e140c'); });
-  pxRect(c, 286, 130, 18, 8, '#8a5a32');                            // étal
-  for (const x of [288, 293, 298]) pxEllipse(c, x, 129, 2, 1, '#aeb9bd');
-  // --- chantier naval (hangar en bois, coque sur cales)
-  vRoof(c, 362, 150, 92, 14, '#7a4a24');
-  pxRect(c, 362, 164, 92, 60, '#a8703c');
-  for (let x = 362; x < 454; x += 6) pxRect(c, x, 164, 1, 60, '#8a5a32');
-  pxRect(c, 392, 182, 34, 42, '#3a2a1c');                           // grande porte ouverte
-  pxRect(c, 396, 200, 26, 8, '#c64a35');                            // coque en réparation
-  pxRect(c, 398, 208, 22, 3, '#8e2f22');
-  vSign(c, 380, 168, 56, '#5e3a1e', (cc, x, y) => { pxRect(cc, x + 18, y + 2, 20, 1, '#d8c49a'); pxRect(cc, x + 26, y + 3, 4, 4, '#d8c49a'); });
-  for (const x of [366, 446]) pxRect(c, x, 226, 4, 12, '#6e4422');
-  // --- cabane de la sorcière (bois noir, toit de chaume, fenêtre verte)
-  vRoof(c, 30, 172, 64, 16, '#4a3a2a');
-  pxRect(c, 30, 188, 64, 44, '#3a2e30');
-  for (let y = 190; y < 232; y += 5) pxRect(c, 30, y, 64, 1, '#2a2024');
-  pxRect(c, 40, 198, 10, 9, '#1a1018');
-  pxRect(c, 41, 199, 8, 7, '#7af0a0');
-  vDoor(c, 62, 216, '#2a1e2a');
-  pxRect(c, 82, 160, 6, 14, '#2a2024');                             // cheminée
-  pxDisk(c, 100, 228, 5, '#4a2a5a');                                // chaudron
-  pxRect(c, 96, 224, 9, 2, '#7af0a0');
-  // arbres
-  for (const [x, y, r] of [[14, 120, 9], [160, 180, 8], [196, 196, 9], [470, 110, 10], [356, 110, 8], [120, 196, 7], [300, 196, 8]]) vTree(c, x, y, r);
-  pixelize(cv, null);
-  return cv;
 }
 
 // Bureau en ville (cinématique) : néons, ordinateur, piles de dossiers, pluie à la fenêtre

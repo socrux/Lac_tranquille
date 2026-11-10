@@ -3613,17 +3613,43 @@ function drawVillageFrame() {
   const c = cv.getContext('2d');
   villageArt ||= buildVillageArt();
   c.drawImage(villageArt, 0, 0);
-  for (const [x, y, col] of [[85, 158, '#9a6ad0'], [116, 56, '#d8dce0'], [410, 148, '#d8dce0']]) {
+  // reflets qui glissent sur le lac
+  c.fillStyle = VPAL.waterL;
+  for (let k = 0; k < 14; k++) {
+    const x = Math.round(((k * 67 + time * (4 + (k % 3) * 2)) % (LW + 20)) - 10);
+    c.fillRect(x, VILLAGE_FX.waterY + 6 + ((k * 13) % 40), 3 + (k % 3), 1);
+  }
+  // jets de la fontaine
+  const f = VILLAGE_FX.fountain;
+  c.fillStyle = VPAL.waterL;
+  for (let k = 0; k < 6; k++) {
+    const p = (time * 0.9 + k / 6) % 1, sd = k % 2 ? 1 : -1;
+    c.fillRect(Math.round(f.x + sd * (2 + p * 9)), Math.round(f.y - 15 - Math.sin(p * Math.PI) * 6 + p * 12), 1, 2);
+  }
+  // fumées des cheminées
+  for (const s of VILLAGE_FX.smoke) {
     for (let k = 0; k < 5; k++) {
-      const p = (time * 0.35 + k / 5) % 1;
-      c.globalAlpha = 0.7 * (1 - p);
-      pxDisk(c, x + Math.sin(time + k * 2) * 3 + p * 6, y - p * 34, 2 + Math.round(p * 3), col);
+      const p = (time * 0.3 + k / 5) % 1;
+      c.globalAlpha = 0.65 * (1 - p);
+      pxDisk(c, s.x + Math.sin(time + k * 2) * 2 + p * 6, s.y - p * 26, 1 + Math.round(p * 3), s.col);
     }
   }
   c.globalAlpha = 1;
+  // la nuit : tout s'assombrit, sauf les lampadaires et les fenêtres de la sorcière
   if (wv.dark > 0.05) {
     c.fillStyle = `rgba(6, 10, 34, ${wv.dark * 0.55})`;
     c.fillRect(0, 0, LW, LH);
+    // halos dégradés des lampadaires (trois cercles de plus en plus lumineux)
+    for (const [r, a] of [[16, 0.12], [11, 0.16], [6, 0.22]]) {
+      c.globalAlpha = wv.dark * a;
+      for (const l of VILLAGE_FX.lamps) pxDisk(c, l.x + 1, l.y + 2, r, '#ffd27a');
+    }
+    c.globalAlpha = wv.dark;
+    for (const l of VILLAGE_FX.lamps) pxRect(c, l.x - 1, l.y + 1, 4, 3, '#fff3b8');
+    // fenêtres allumées (vertes chez la sorcière)
+    c.globalAlpha = wv.dark * 0.85;
+    for (const w of VILLAGE_FX.windows) { c.fillStyle = w.col; c.fillRect(w.x, w.y, w.w, w.h); }
+    c.globalAlpha = 1;
   }
 }
 $('village-spots').addEventListener('click', (e) => {
