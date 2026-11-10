@@ -14,7 +14,7 @@ const BOAT_Y = 222;          // haut de la coque
 const $ = (id) => document.getElementById(id);
 
 // Version du jeu : à mettre à jour à chaque pull request (MAJEUR.MINEUR.CORRECTIF)
-const GAME_VERSION = '1.2.0';
+const GAME_VERSION = '1.2.1';
 
 // ===========================================================================
 // Données
@@ -371,6 +371,7 @@ function validProgress(s) {
   if (s.v !== 2) {                              // ancienne sauvegarde v1 : seul le compteur est repris
     if (!hasOwn(s, 'count')) return null;       // un JSON quelconque n'est pas une sauvegarde
     p.stats.caught = vInt(s.count, SAVE_LIM.count);
+    p.stats.casts = p.stats.caught;             // sinon « plus de prises que de lancers » au classement
     return p;
   }
   p.money = vInt(s.money, SAVE_LIM.money);
@@ -761,14 +762,14 @@ function strike() {
   say('');
   showCatchCard();
   Sound.catchFish(abom || f.unique);
-  if (drop) setTimeout(() => Sound.itemFound(itemDef(drop.inst).tier), 500);
+  if (drop) later(() => Sound.itemFound(itemDef(drop.inst).tier), 500);
   checkAchievements({ type: 'catch', f, abom, perfect, ...flags });
   if (drop) checkAchievements({ type: 'item', item: itemDef(drop.inst) });
   if (part) onSpecialPartFound(part);
 }
 
 function onSpecialPartFound(part) {
-  setTimeout(() => Sound.chestGet(), 700);
+  later(() => Sound.chestGet(), 700);
   pushToast({ icon: ICONS.boat, label: 'Pièce spéciale trouvée !', title: part.name,
     sub: boatReady() ? `Toutes les pièces du ${nextBoat().name} sont réunies : direction le chantier !` : `Pour le ${nextBoat().name}`,
     sound: () => Sound.achievement() });
@@ -946,7 +947,7 @@ function collectPot(slot) {
   lastPot = { slot, type: pot.type, bait: pot.bait, results, drops, part: lastPotPart };
   addRipple(POT_SLOTS[slot].x, POT_SLOTS[slot].y, 1);
   if (results.length) Sound.catchFish(results.some((r) => r.abom)); else Sound.miss();
-  if (drops.length) setTimeout(() => Sound.itemFound(Math.max(...drops.map((d) => itemDef(d.inst).tier))), 500);
+  if (drops.length) later(() => Sound.itemFound(Math.max(...drops.map((d) => itemDef(d.inst).tier))), 500);
   for (const r of results) checkAchievements({ type: 'catch', ...r, f: r.cr });
   for (const d of drops) checkAchievements({ type: 'item', item: itemDef(d.inst) });
   checkAchievements({ type: 'collect', full: results.length >= POT_BY_ID[pot.type].capacity });
@@ -1008,7 +1009,37 @@ const CTH_PHASES = [
   { vigor: 1.8,  bar: 0.66, fill: 0.8,  name: 'Sa fureur fait trembler le lac !' },
 ];
 // active : il est visible ; rise : 0 (sous l'eau) → 1 (dressé) ; target : vers où il bouge
-const cth = { active: false, rise: 0, target: 0, rage: 0, shake: 0, sprite: null, spriteT: -1 };
+const cth = { active: false, rise: 0, target: 0, rage: 0, shake: 0, sprite: null, spriteT: -1, spriteRage: -1 };
+
+// Sons différés pendant la partie (rugissement, tonnerre, objet trouvé…) : annulés par resetFishing(),
+// pour qu'ils ne se déclenchent pas sur le menu après un retour en arrière.
+const gameTimers = new Set();
+function later(fn, ms) {
+  const id = setTimeout(() => { gameTimers.delete(id); fn(); }, ms);
+  gameTimers.add(id);
+}
+
+// Remise à zéro centralisée de la pêche en cours : combat, Grand Ancien, musique, sons différés.
+// Appelée à l'entrée en partie (chargement, import), au retour au menu et à la mise à l'eau d'un bateau.
+function resetFishing() {
+  for (const id of gameTimers) clearTimeout(id);
+  gameTimers.clear();
+  holding = false;
+  game.mg = null;
+  game.swap = null;
+  Object.assign(cth, { active: false, rise: 0, target: 0, rage: 0, shake: 0 });
+  storm.flash = 0;
+  Sound.setMusic('calm');
+  $('catch-card').hidden = true;
+}
+
+// Une prise en cours abandonnée (retour au menu) compte comme un poisson échappé
+const FIGHT_STATES = new Set(['bite', 'reeling', 'rising', 'phaseBreak']);
+function abandonCatch() {
+  if (!inGame || !FIGHT_STATES.has(game.state) || !game.fish) return;
+  progress.stats.missed++;
+  checkAchievements({ type: 'escape', f: game.fish.f });
+}
 
 function startCthulhuRise() {
   cth.active = true;
@@ -1020,7 +1051,7 @@ function startCthulhuRise() {
   say('Le lac se soulève… LE GRAND ANCIEN S\'ÉVEILLE !');
   Sound.setMusic('epic', 1);
   Sound.hook();
-  setTimeout(() => Sound.roar(), 900);
+  later(() => Sound.roar(), 900);
 }
 
 function cthulhuSink() {
@@ -1140,7 +1171,7 @@ function nextCthulhuPhase() {
   say(`Phase ${m.phase + 1} réussie ! Il rugit… préparez-vous !`);
   Sound.phase();
   Sound.setMusic('epic', game.nextPhase + 1);
-  setTimeout(() => Sound.roar(), 300);
+  later(() => Sound.roar(), 300);
   addRipple(240, 150, 4);
 }
 
@@ -1285,6 +1316,9 @@ function setWeather(id, announce = true) {
 function updateClock(dt) {
   const prev = progress.clock;
   progress.clock += dt;
+  // le temps de jeu suit l'horloge (panneaux ouverts compris) : les jours restent cohérents avec
+  // le temps joué, ce que vérifie le classement (scripts/leaderboard.mjs)
+  progress.stats.playTime += dt;
   if (dayOf(prev) !== dayOf(progress.clock)) refreshCurseDay(true);
   const wasNight = isNightHour(hourOf(prev));
   const night = isNightHour(hourOf(progress.clock));
@@ -1388,7 +1422,7 @@ function updateWorldVisuals(dt) {
       storm.bolt = makeBolt();
       storm.boltT = 0.25;
       const dist = Math.random();
-      setTimeout(() => Sound.thunder(dist), 200 + dist * 1500);
+      later(() => Sound.thunder(dist), 200 + dist * 1500);
     }
   }
 }
@@ -1430,7 +1464,6 @@ function update(dt) {
 
   if (!inGame || !$('overlay').hidden) return;   // pause quand un panneau est ouvert
   game.t += dt;
-  progress.stats.playTime += dt;
   saveTimer += dt;
   if (saveTimer > 15) { saveTimer = 0; writeSave(); }
 
@@ -2909,10 +2942,13 @@ function refreshMenu() {
 
 function enterGame() {
   document.activeElement?.blur();
+  resetFishing();
   inGame = true;
   $('menu').hidden = true;
   $('hud').hidden = false;
-  $('catch-card').hidden = true;
+  // Avant la 1.2.1, l'horloge avançait panneaux ouverts mais pas le temps de jeu : on rattrape
+  // l'écart (l'horloge ne tourne qu'en partie, c'est donc du vrai temps passé en jeu).
+  progress.stats.playTime = Math.max(progress.stats.playTime, progress.clock - CLOCK_START);
   invalidateMods();
   refreshBoat();
   if (!progress.weather) setWeather('clair', false);
@@ -2929,14 +2965,13 @@ function enterGame() {
 
 function showMenu() {
   closePanel();
+  abandonCatch();
   if (inGame) writeSave();
   inGame = false;
   Sound.rain(0);
-  cth.active = false;
-  Sound.setMusic('calm');
+  resetFishing();
   $('menu').hidden = false;
   $('hud').hidden = true;
-  $('catch-card').hidden = true;
   say('');
   refreshMenu();
 }
@@ -3068,7 +3103,7 @@ $('btn-leaderboard').addEventListener('click', () => openPanel('leaderboard'));
 //  - une GitHub Action vérifie le score et met à jour leaderboard.json dans le dépôt ;
 //  - le jeu lit leaderboard.json directement sur GitHub.
 // ---------------------------------------------------------------------------
-const LEADERBOARD = { repo: 'socrux/jeux-p-che', branch: 'main', salt: 'lac-tranquille/score/v1' };
+const LEADERBOARD = { repo: 'socrux/Lac_tranquille', branch: 'main', salt: 'lac-tranquille/score/v1' };
 // même règle que scripts/leaderboard.mjs (NAME_RE) : vérifiée avant l'envoi pour prévenir le joueur
 const LB_NAME_RE = /^[\p{L}\p{M}\p{N} '’._-]{1,16}$/u;
 const LB_FIELDS = ['v', 'version', 'name', 'earned', 'caught', 'casts', 'aboms', 'heaviestKg', 'heaviestFish', 'dex', 'days', 'boat', 'cthulhu', 'playTime'];
@@ -3587,8 +3622,12 @@ function renderShop() {
 }
 
 // Mise à l'eau du nouveau bateau : on passe au niveau suivant puis on lance l'animation
+// On ne change pas de bateau avec un poisson au bout de la ligne (morsure, combat, Grand Ancien) :
+// la prise serait perdue sans être comptée. Une ligne simplement à l'eau est relevée.
+const canSwapBoat = () => !FIGHT_STATES.has(game.state) && game.state !== 'boatSwap';
+
 function startBoatSwap() {
-  if (!boatReady()) return;
+  if (!boatReady() || !canSwapBoat()) return;
   const nb = nextBoat();
   const old = boatSprite;
   const oldLevel = boatLevel();
@@ -3598,8 +3637,7 @@ function startBoatSwap() {
   progress.boat.level = nb.level;
   refreshBoat();
   closePanel();
-  holding = false;
-  $('catch-card').hidden = true;
+  resetFishing();
   game.swap = { old, oldLevel };
   setState('boatSwap');
   say(`Au revoir, ${BOATS[oldLevel - 1].name}…`);
@@ -3656,7 +3694,8 @@ function renderYard() {
         <div class="actions"><button class="btn" disabled>${spGot ? 'Trouvée' : 'À trouver'}</button></div>
       </div>
       <div class="yard-go">
-        <button class="btn" data-assemble ${ready ? '' : 'disabled'}>${ready ? `Mettre le ${nb.name} à l'eau !` : `Pièces réunies : ${nb.parts.filter((p) => hasPart(p.id)).length + (spGot ? 1 : 0)} / ${nb.parts.length + 1}`}</button>
+        <button class="btn" data-assemble ${ready && canSwapBoat() ? '' : 'disabled'}>${!ready ? `Pièces réunies : ${nb.parts.filter((p) => hasPart(p.id)).length + (spGot ? 1 : 0)} / ${nb.parts.length + 1}`
+          : canSwapBoat() ? `Mettre le ${nb.name} à l'eau !` : 'Terminez votre prise avant la mise à l\'eau'}</button>
       </div>`;
   return html;
 }

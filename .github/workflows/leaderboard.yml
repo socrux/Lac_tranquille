@@ -24,7 +24,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # actions épinglées sur un commit précis (un tag peut être déplacé) ; mettre à jour SHA et commentaire ensemble
+      # pour un événement « issues », checkout prend le commit du moment où l'issue a été ouverte :
+      # un traitement mis en file d'attente lirait un leaderboard.json périmé. On prend donc la
+      # branche par défaut à jour au moment où le traitement démarre.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020   # v4.4.0
         with:
@@ -35,6 +40,7 @@ jobs:
         run: node scripts/leaderboard.mjs
 
       - name: Enregistrer leaderboard.json
+        id: push
         if: steps.score.outputs.status == 'ok'
         env:
           LOGIN: ${{ github.event.issue.user.login }}   # passé par variable, jamais interpolé dans le script
@@ -55,7 +61,16 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE: ${{ github.event.issue.number }}
           STATUS: ${{ steps.score.outputs.status }}
+          PUSHED: ${{ steps.push.outcome }}
         run: |
+          # score valide mais classement non enregistré (échec du push) : on ne prétend pas le contraire,
+          # et l'issue reste ouverte pour pouvoir relancer le traitement depuis l'onglet Actions
+          if [ "$STATUS" = "ok" ] && [ "$PUSHED" != "success" ]; then
+            gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "⚠️ Score valide, mais le classement n'a pas pu être enregistré (erreur technique). L'issue reste ouverte : le traitement sera relancé."
+            gh label create "score-erreur" --repo "$GITHUB_REPOSITORY" --color "d93f0b" 2>/dev/null || true
+            gh issue edit "$ISSUE" --repo "$GITHUB_REPOSITORY" --add-label "score-erreur" || true
+            exit 1
+          fi
           if [ -f "$RUNNER_TEMP/score-result.md" ]; then
             gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/score-result.md"
           fi
