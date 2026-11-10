@@ -13,8 +13,12 @@
        que les styles (attributs style="" générés par le jeu), jamais les scripts. -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src https://lac-tranquille-saves.cloudflare-blissful748.workers.dev; base-uri 'none'; form-action 'none'; object-src 'none'">
   <meta name="referrer" content="no-referrer">
+  <!-- Version du jeu : identique à GAME_VERSION (game.js) et au « ?v= » des fichiers ci-dessous.
+       Le « ?v= » change à chaque version : le navigateur recharge alors styles et scripts au lieu
+       de garder d'anciennes copies en cache (GitHub Pages : cache de 10 minutes). -->
+  <meta name="game-version" content="1.6.0">
   <title>Lac Tranquille</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=1.6.0">
 </head>
 <body>
   <!-- Téléphone tenu à la verticale (affiché par style.css uniquement) -->
@@ -64,6 +68,8 @@
         <div class="tuto-actions">
           <span class="talk-step" id="tuto-step"></span>
           <button class="btn" id="tuto-skip">Passer le tutoriel</button>
+          <button class="btn" id="tuto-no" hidden>Non merci</button>
+          <button class="btn" id="tuto-yes" hidden>Oui, activer</button>
           <button class="btn" id="tuto-next">Suivant ›</button>
         </div>
       </div>
@@ -214,7 +220,6 @@
         <div class="lb-foot">
           <p class="lb-hint" id="lb-hint"></p>
           <button class="btn" id="lb-refresh">Actualiser</button>
-          <button class="btn" id="lb-submit">Envoyer mon score</button>
         </div>
       </div>
 
@@ -492,11 +497,11 @@
     </div>
   </div>
 
-  <script src="audio.js"></script>
-  <script src="pixel.js"></script>
-  <script src="world.js"></script>
-  <script src="character.js"></script>
-  <script src="village.js"></script>
-  <script src="game.js"></script>
+  <script src="audio.js?v=1.6.0"></script>
+  <script src="pixel.js?v=1.6.0"></script>
+  <script src="world.js?v=1.6.0"></script>
+  <script src="character.js?v=1.6.0"></script>
+  <script src="village.js?v=1.6.0"></script>
+  <script src="game.js?v=1.6.0"></script>
 </body>
 </html>

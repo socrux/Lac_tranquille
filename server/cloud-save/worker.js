@@ -6,10 +6,11 @@
 //
 // Routes (corps JSON, 4 Ko max sauf /save) :
 //   POST /v1/save         { name, key, save, baseRev, fish? }  crée la place (pseudo libre) ou met à jour ;
-//                         si le pseudo est au classement, son score est recalculé au passage
+//                         le score du classement est recalculé au passage (automatique)
 //   POST /v1/load         { name, key }         renvoie { save, rev, updatedAt }
 //   POST /v1/delete       { name, key }         supprime la sauvegarde en ligne (et le score)
-//   POST /v1/score        { name, key, fish }   inscrit / met à jour le pseudo au classement
+//   POST /v1/score        { name, key, fish }   recalcule le score depuis la sauvegarde en ligne
+//                         (gardée pour les jeux 1.5.x, qui l'appellent encore)
 //   GET  /v1/leaderboard?cat=earned             les 50 premiers d'une catégorie
 //
 // Sécurité (cf. CLAUDE.md) : schéma strict, tailles bornées, requêtes SQL paramétrées,
@@ -348,7 +349,7 @@ async function routeSave(request, env) {
       'INSERT OR IGNORE INTO saves (name, display, key_hash, data, gv, rev, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, ?6)',
     ).bind(name.id, name.display, keyHash, data, gv, now).run();
     if (!res.meta?.changes) fail(409, 'pseudo_pris', 'Ce pseudo a déjà une sauvegarde en ligne.');
-    return { rev: 1, updatedAt: now, created: true };
+    return { rev: 1, updatedAt: now, created: true, ranked: await saveScore(env, name, save, body.fish, now) };
   }
   if (!sameHash(row.key_hash, keyHash)) fail(409, 'pseudo_pris', 'Ce pseudo a déjà une sauvegarde en ligne (clé différente).');
   if (now - row.updated_at < MIN_WRITE_GAP_MS) fail(429, 'trop_tot', 'Sauvegarde déjà envoyée il y a quelques secondes.');
@@ -358,17 +359,19 @@ async function routeSave(request, env) {
     'UPDATE saves SET data = ?1, gv = ?2, rev = rev + 1, updated_at = ?3 WHERE name = ?4 AND key_hash = ?5 AND rev = ?6',
   ).bind(data, gv, now, name.id, keyHash, row.rev).run();
   if (!res.meta?.changes) fail(409, 'conflit', 'Une version plus récente existe en ligne.');
-  // pseudo inscrit au classement : son score suit la sauvegarde (un score incohérent est ignoré,
-  // la sauvegarde, elle, est bien enregistrée)
-  let ranked = false;
+  return { rev: row.rev + 1, updatedAt: now, created: false, ranked: await saveScore(env, name, save, body.fish, now) };
+}
+
+// Classement automatique : chaque sauvegarde en ligne met à jour le score du pseudo (rien à faire
+// pour le joueur). Un score incohérent est ignoré, et une erreur (table absente…) n'empêche jamais
+// la sauvegarde. Renvoie true si le score a été enregistré.
+async function saveScore(env, name, save, fish, now) {
   try {
-    if (await env.DB.prepare('SELECT 1 AS x FROM scores WHERE name = ?1').bind(name.id).first()) {
-      ranked = true;
-      const s = scoreFromSave(save, body.fish);
-      if (!scoreProblem(s)) await upsertScore(env, name, s, now);
-    }
-  } catch { /* table absente ou erreur : la sauvegarde reste valide */ }
-  return { rev: row.rev + 1, updatedAt: now, created: false, ranked };
+    const s = scoreFromSave(save, fish);
+    if (scoreProblem(s)) return false;
+    await upsertScore(env, name, s, now);
+    return true;
+  } catch { return false; }
 }
 
 async function routeLoad(request, env) {

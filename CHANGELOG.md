@@ -16,6 +16,35 @@ La partie est enregistrée **dans le navigateur, pour une adresse donnée**. Une
 
 ---
 
+## 1.6.0 — Lancer visé, bulles et classement automatique (10/11/2026)
+
+✅ **Sauvegarde conservée.** Cette version intègre aussi les correctifs prévus pour la 1.5.1.
+
+### Nouveautés
+- **Lancer visé** : le bouchon tombe à l'endroit où vous cliquez (ou touchez) sur le lac.
+  - Un clic sur le ciel, les rives ou le bateau ne lance pas la ligne.
+  - À la souris, le curseur devient un viseur au-dessus de l'eau.
+  - La barre Espace lance toujours la ligne au hasard.
+- **Bulles sur le lac** : de 0 à 5 fois par jour, des bulles remontent à la surface quelque part sur le lac, pendant une minute environ.
+  - Lancez votre ligne dans la zone, qui est large : les poissons rares et les abominations deviennent deux fois plus fréquents pour ce lancer.
+  - Un message prévient quand les bulles apparaissent.
+- **Classement automatique** : il n'y a plus de bouton « Envoyer mon score ». Chaque sauvegarde en ligne (automatique, bouton « Sauver », retour au menu) met votre score à jour.
+  - Tout joueur qui active la sauvegarde en ligne apparaît au classement.
+
+### Changements
+- **La sauvegarde en ligne est proposée, plus activée d'office.** Pendant l'astuce sauvegarde, le jeu demande « Voulez-vous activer la sauvegarde en ligne ? », avec « Oui, activer » ou « Non merci ».
+  - Le choix est retenu dans la partie, et peut être changé à tout moment dans les Options.
+  - La question n'est pas posée si l'appareil est déjà lié.
+
+### Corrections
+- **Après une mise à jour, le jeu pouvait s'afficher à moitié** : encart des nouveautés vide, icône « Sauver » manquante… Le navigateur gardait d'anciennes copies des fichiers du jeu.
+  - Chaque fichier porte maintenant le numéro de version, ce qui force un rechargement complet à chaque mise à jour.
+  - Si la page et les scripts ne correspondent pas, le jeu se recharge tout seul, une fois.
+
+> **Mise à jour du serveur nécessaire** (classement automatique) : collez le nouveau `server/cloud-save/worker.js` dans l'éditeur du Worker sur Cloudflare, puis cliquez sur *Deploy*. La base ne change pas. Avec Wrangler : `npx wrangler deploy` depuis `server/cloud-save/`. Le nouveau serveur reste compatible avec le jeu 1.5.0.
+
+---
+
 ## 1.5.0 — Classement, bouton Sauver et tutoriels (10/11/2026)
 
 ✅ **Sauvegarde conservée.** Les parties déjà commencées passent la pêche d'entraînement : seule l'astuce sauvegarde leur est montrée.
@@ -31,6 +60,11 @@ La partie est enregistrée **dans le navigateur, pour une adresse donnée**. Une
 - **Astuce sauvegarde** : des flèches montrent le bouton « Sauver », puis la clé personnelle dans les options.
 - Les tutoriels peuvent être passés, et revus depuis les options.
 - **Menu de départ** : un encart présente la version et ses principales nouveautés, avec un lien vers ces notes de version.
+
+### Sécurité
+- **Serveur :** une sauvegarde en ligne n'est acceptée que si son personnage porte bien le pseudo sous lequel elle est rangée (majuscules et minuscules indifférentes).
+
+> **Mise à jour du serveur nécessaire :** d'abord `schema.sql` dans la console D1 (table du classement), puis le nouveau `worker.js` dans l'éditeur du Worker et *Deploy*. Voir `server/cloud-save/TUTO-classement.md` et `TUTO-redeploiement.md`. Avec Wrangler : `npx wrangler deploy` depuis `server/cloud-save/`.
 
 ---
 

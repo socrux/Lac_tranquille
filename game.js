@@ -14,14 +14,29 @@ const BOAT_Y = 222;          // haut de la coque
 const $ = (id) => document.getElementById(id);
 
 // Version du jeu : à mettre à jour à chaque pull request (MAJEUR.MINEUR.CORRECTIF)
-const GAME_VERSION = '1.5.0';
+const GAME_VERSION = '1.6.0';
+// Garde-fou contre le cache : la page (index.html, <meta name="game-version">) et ce script doivent
+// être de la même version. Sinon, le navigateur a mélangé une copie en cache et une nouvelle
+// (GitHub Pages : cache de 10 minutes) : on recharge la page une seule fois (sessionStorage évite
+// toute boucle si le serveur lui-même n'est pas à jour), et on arrête ce script, fait pour une autre page.
+(() => {
+  const pageVersion = document.querySelector('meta[name="game-version"]')?.content || 'aucune';
+  if (pageVersion === GAME_VERSION) return;
+  const mark = `${pageVersion}>${GAME_VERSION}`;
+  try {
+    if (sessionStorage.getItem('lacTranquille.reload') === mark) return;   // déjà tenté : on continue
+    sessionStorage.setItem('lacTranquille.reload', mark);
+  } catch { return; }                                 // stockage indisponible : pas de rechargement
+  location.reload();
+  throw new Error(`Lac Tranquille : page ${pageVersion} / script ${GAME_VERSION}, rechargement`);
+})();
 // Nouveautés affichées sur le menu de départ (les points importants ; le détail est dans CHANGELOG.md)
 const WHATS_NEW = [
-  'Nouveau classement en ligne, instantané et mis à jour à chaque sauvegarde',
-  'Bouton « Sauver » dans la barre d\'icônes (touche S)',
-  'Sauvegarde en ligne activée par défaut : votre partie vous suit partout',
-  'Tutoriel : Papi Émile vous réapprend à pêcher',
-  'Astuces fléchées pour la sauvegarde',
+  'Lancez où vous voulez : le bouchon tombe à l\'endroit cliqué sur le lac',
+  'Des bulles remontent parfois à la surface : lancez dedans, poissons rares et abominations ×2',
+  'Classement automatique : votre score suit chaque sauvegarde en ligne',
+  'Sauvegarde en ligne proposée pendant l\'astuce sauvegarde',
+  'Correctif : le jeu ne s\'affiche plus à moitié après une mise à jour',
 ];
 // Écran tactile principal (téléphone, tablette) : consignes « Touchez » au lieu de « Cliquez »
 const TOUCH = !!window.matchMedia?.('(pointer: coarse)').matches;
@@ -343,7 +358,9 @@ function emptyProgress() {
     market: { day: 0, index: MARKET.base, history: [] },
     bric: { day: 0, stock: [], sold: [] },
     met: {},
-    tuto: { fish: false, save: false },   // tutoriels terminés (pêche avec grand-père, sauvegarde)
+    // tutoriels terminés (pêche avec grand-père, sauvegarde) ; cloud : réponse du joueur à
+    // « Voulez-vous la sauvegarde en ligne ? » ('yes' / 'no', null = pas encore demandé)
+    tuto: { fish: false, save: false, cloud: null },
     stats: {
       casts: 0, caught: 0, missed: 0, early: 0, aboms: 0, perfects: 0, chests: 0,
       crusts: 0, potsCollected: 0, cthulhu: 0, earned: 0, spent: 0, playTime: 0, best: null,
@@ -553,7 +570,10 @@ function validProgress(raw) {
   // tutoriels : une partie déjà commencée (au moins un poisson) n'a pas besoin de la pêche d'entraînement
   step('tutoriels', () => {
     const tu = vObj(s.tuto);
-    p.tuto = { fish: tu.fish === true || p.stats.caught > 0, save: tu.save === true };
+    p.tuto = {
+      fish: tu.fish === true || p.stats.caught > 0, save: tu.save === true,
+      cloud: tu.cloud === 'yes' || tu.cloud === 'no' ? tu.cloud : null,
+    };
   });
   return p;
 }
@@ -793,7 +813,8 @@ function rodTip() {
 // ===========================================================================
 // Pêche
 // ===========================================================================
-function pickFish() {
+// boost : lancer dans les bulles (poissons rares et légendaires ×2, chance d'abomination ×2)
+function pickFish(boost = false) {
   // pêche d'entraînement : le poisson le plus calme du lac, jamais une abomination
   if (tuto.fishing) {
     const easy = FISH.filter((f) => !f.unique).reduce((a, b) => (fishVigor(b, false) < fishVigor(a, false) ? b : a));
@@ -804,14 +825,16 @@ function pickFish() {
     if (FISH_BY_ID[id]) return { f: FISH_BY_ID[id], abom: ab === 'abom' };
   }
   const b = bait();
-  const total = FISH.reduce((s, f) => s + fishWeight(f, b), 0);
+  const weight = (f) => fishWeight(f, b) * (boost && f.tier > 0 ? BUBBLES.rareMul : 1);
+  const total = FISH.reduce((s, f) => s + weight(f), 0);
   let r = Math.random() * total;
   let f = FISH[0];
   for (const cand of FISH) {
-    r -= fishWeight(cand, b);
+    r -= weight(cand);
     if (r <= 0) { f = cand; break; }
   }
-  return { f, abom: !f.unique && Math.random() < abomChance(b) };
+  const abom = boost ? Math.min(0.9, abomChance(b) * BUBBLES.abomMul) : abomChance(b);
+  return { f, abom: !f.unique && Math.random() < abom };
 }
 
 function consumeBait() {
@@ -825,13 +848,133 @@ function consumeBait() {
   }
 }
 
-function cast() {
-  game.float.from = rodTip();
-  game.float.to = { x: Math.round(rand(80, 400)), y: Math.round(rand(HORIZON + 14, 196)) };
-  if (Math.abs(game.float.to.x - BOAT_X) < 70 && game.float.to.y > 182) game.float.to.y = 172;
+// ---------------------------------------------------------------------------
+// Événement « bulles » : 0 à 5 fois par jour de jeu, des bulles remontent à la surface à un endroit
+// du lac. Un lancer dans la zone (large : ellipse, plus grande au premier plan) double la chance des
+// poissons rares (rareté ≥ 1) et des abominations. Le programme d'une journée se déduit du numéro
+// du jour et du nom du personnage (générateur pseudo-aléatoire de gameplay) : rien à sauvegarder,
+// et deux joueurs n'ont pas leurs bulles au même endroit.
+// ---------------------------------------------------------------------------
+const BUBBLES = {
+  perDayMax: 5,           // 0 à 5 événements par jour
+  durMin: 45, durMax: 80, // durée en secondes de jeu (un jour = 600 s)
+  rx: 34, ry: 15,         // demi-axes de la zone, au milieu du lac (agrandis au premier plan)
+  fade: 3,                // apparition / disparition progressive (s)
+  rareMul: 2, abomMul: 2,
+};
+function seededRng(seed) {                         // mulberry32 : gameplay uniquement, jamais pour un secret
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const strHash = (s) => { let h = 2166136261; for (const ch of s) h = Math.imul(h ^ ch.codePointAt(0), 16777619); return h >>> 0; };
+const bubbleCache = { key: '', list: [] };
+function bubblesOfDay(day) {
+  const key = `${normName(progress.look?.name)}|${day}|${boatLevel()}`;
+  if (bubbleCache.key === key) return bubbleCache.list;
+  const rng = seededRng(strHash(key));
+  const n = Math.floor(rng() * (BUBBLES.perDayMax + 1));
+  const list = [];
+  for (let i = 0; i < n; i++) {
+    const dur = BUBBLES.durMin + rng() * (BUBBLES.durMax - BUBBLES.durMin);
+    const start = rng() * (DAY_LEN - dur);
+    // un endroit dégagé : le centre et les bords de la zone sur l'eau, loin du bateau
+    for (let k = 0; k < 40; k++) {
+      const x = Math.round(70 + rng() * 340), y = Math.round(HORIZON + 18 + rng() * (192 - HORIZON - 18));
+      const w = BUBBLES.rx * perspective(y) * 0.7;
+      if (onLake(x, y) && onLake(x - w, y) && onLake(x + w, y) && Math.hypot(x - BOAT_X, y - BOAT_Y) > 60) {
+        list.push({ start, end: start + dur, x, y });
+        break;
+      }
+    }
+  }
+  list.sort((a, b) => a.start - b.start);
+  // jamais deux à la fois : un événement qui commence avant la fin du dernier gardé est écarté
+  const kept = [];
+  for (const b of list) if (!kept.length || b.start >= kept[kept.length - 1].end) kept.push(b);
+  bubbleCache.key = key;
+  bubbleCache.list = kept;
+  return kept;
+}
+const timeOfDay = () => ((progress.clock % DAY_LEN) + DAY_LEN) % DAY_LEN;
+function activeBubbles() {
+  if (!inGame || tuto.fishing) return null;
+  const t = timeOfDay();
+  return bubblesOfDay(dayOf(progress.clock)).find((b) => t >= b.start && t < b.end) || null;
+}
+function inBubbles(p, b = activeBubbles()) {
+  if (!b || !p) return false;
+  const s = perspective(b.y);
+  const dx = (p.x - b.x) / (BUBBLES.rx * s), dy = (p.y - b.y) / (BUBBLES.ry * s);
+  return dx * dx + dy * dy <= 1;
+}
+// Annonce à l'apparition, et petits ronds dans l'eau quand une bulle éclate
+let bubbleShown = null;
+let bubbleIcon = null;
+function bubbleTick(dt) {
+  const b = activeBubbles();
+  if (b && b !== bubbleShown) {
+    bubbleShown = b;
+    if (!bubbleIcon) {
+      const cv = makeCanvas(16, 16);
+      const c = cv.getContext('2d');
+      for (const [x, y, r] of [[5, 10, 3], [10, 5, 2], [11, 11, 2]]) { pxDisk(c, x, y, r, '#1e4c86'); pxDisk(c, x, y, r - 1, '#bfe8ff'); pxRect(c, x - 1, y - 1, 1, 1, '#ffffff'); }
+      bubbleIcon = cv.toDataURL();
+    }
+    pushToast({ icon: bubbleIcon, label: 'Sur le lac', title: 'Des bulles remontent à la surface…',
+      sub: 'Lancez votre ligne dedans : poissons rares et abominations ×2', sound: () => Sound.plop() });
+  }
+  if (!b) { bubbleShown = null; return; }
+  const s = perspective(b.y);
+  if (Math.random() < dt * 3) addRipple(b.x + rand(-1, 1) * BUBBLES.rx * s * 0.7, b.y + rand(-1, 1) * BUBBLES.ry * s * 0.7, 0.35);
+}
+function drawBubbles() {
+  const b = activeBubbles();
+  if (!b) return;
+  const t = timeOfDay();
+  const a = clamp(Math.min(t - b.start, b.end - t) / BUBBLES.fade, 0, 1) * (1 - wv.dark * 0.4);
+  const s = perspective(b.y);
+  const rx = BUBBLES.rx * s, ry = BUBBLES.ry * s;
+  ctx.globalAlpha = 0.16 * a;                      // tache claire : l'eau remuée
+  pxEllipse(ctx, b.x, b.y, Math.round(rx), Math.round(ry), '#cdeeff');
+  ctx.globalAlpha = 0.12 * a;
+  pxEllipse(ctx, b.x, b.y, Math.round(rx * 0.6), Math.round(ry * 0.6), '#ffffff');
+  for (let i = 0; i < 22; i++) {                   // les bulles : elles grossissent, montent un peu, puis éclatent
+    const h1 = ((i * 73856093) >>> 0) % 1000 / 1000, h2 = ((i * 19349663 + 7) >>> 0) % 1000 / 1000;
+    const ang = h1 * Math.PI * 2, dist = Math.sqrt(h2) * 0.85;
+    const ph = (time * (0.55 + h1 * 0.4) + h2) % 1;
+    const x = Math.round(b.x + Math.cos(ang) * dist * rx);
+    const y = Math.round(b.y + Math.sin(ang) * dist * ry - ph * 2);
+    const r = Math.max(1, Math.round((1.3 + ph * 2.4) * s));
+    ctx.globalAlpha = a * (ph < 0.85 ? 0.95 : (1 - ph) / 0.15 * 0.95);
+    pxDisk(ctx, x, y, r, '#2a6aa8');
+    if (r > 1) pxDisk(ctx, x, y, r - 1, '#d6f2ff');
+    pxRect(ctx, x - 1, y - r + 1, 1, 1, '#ffffff');
+  }
+  ctx.globalAlpha = 1;
+}
+
+// Lancer au clavier (Espace) : un endroit du lac au hasard, comme avant
+function randomCastTarget() {
+  const to = { x: Math.round(rand(80, 400)), y: Math.round(rand(HORIZON + 14, 196)) };
+  if (Math.abs(to.x - BOAT_X) < 70 && to.y > 182) to.y = 172;
   // les grands bateaux ont une cabine à gauche du pêcheur : on ne lance pas derrière
-  if (boatLevel() >= 3 && game.float.to.x > BOAT_X - 110 && game.float.to.x < BOAT_X + 10 && game.float.to.y > 160) game.float.to.y = 158;
-  game.fish = pickFish();
+  if (boatLevel() >= 3 && to.x > BOAT_X - 110 && to.x < BOAT_X + 10 && to.y > 160) to.y = 158;
+  return to;
+}
+
+// target : point du lac cliqué par le joueur (le flotteur y atterrit) ; absent = lancer au hasard
+function cast(target) {
+  game.float.from = rodTip();
+  game.float.to = target ? { x: Math.round(target.x), y: Math.round(target.y) } : randomCastTarget();
+  // dans les bulles : rareté et abominations doublées pour ce lancer
+  game.boost = !tuto.fishing && inBubbles(game.float.to);
+  game.fish = pickFish(game.boost);
   game.baitRanOut = null;
   consumeBait();
   progress.stats.casts++;
@@ -850,7 +993,9 @@ function startWaiting() {
   game.nextNibble = tuto.fishing ? 1.4 : rand(0.8, 2.2) * wait;
   game.nibble = 0;
   setState('waiting');
-  say(game.baitRanOut ? `Plus de ${game.baitRanOut} ! Retour à la mie de pain. Patience…` : 'Patience…');
+  say(game.baitRanOut ? `Plus de ${game.baitRanOut} ! Retour à la mie de pain. Patience…`
+    : game.boost ? 'Dans les bulles ! Rareté et abominations ×2… Patience.' : 'Patience…');
+  if (game.boost) Sound.plop();
   Sound.splash();
 }
 
@@ -1426,11 +1571,12 @@ function updateReel(dt) {
   }
 }
 
-function onAction() {
+// target : point du lac visé (clic / toucher) ; sans target (Espace), lancer au hasard
+function onAction(target) {
   if (!inGame || !$('overlay').hidden) return;
   switch (game.state) {
     case 'idle':
-      cast();
+      cast(target);
       break;
     case 'waiting':
       progress.stats.early++;
@@ -1452,7 +1598,7 @@ function continueAfterCatch() {
   $('catch-card').hidden = true;
   if (cth.active) cthulhuSink();
   setState('idle');
-  say(`${CLICK} pour lancer la ligne`);
+  say(`${CLICK} sur le lac pour lancer la ligne`);
   Sound.click();
 }
 
@@ -1708,6 +1854,7 @@ function update(dt) {
   saveTimer += dt;
   if (saveTimer > 15) { saveTimer = 0; writeSave(); }
   tutoTick();
+  bubbleTick(dt);
 
   switch (game.state) {
     case 'casting': {
@@ -1764,7 +1911,7 @@ function update(dt) {
       if (game.t >= SWAP_OUT + SWAP_IN + 0.4) {
         game.swap = null;
         setState('idle');
-        say(`${CLICK} pour lancer la ligne`);
+        say(`${CLICK} sur le lac pour lancer la ligne`);
         Sound.achievement();
         pushToast({ icon: ICONS.boat, label: `Bateau niveau ${boatLevel()}`, title: boatDef().name,
           sub: `Cannes et caisses jusqu'au niveau ${boatMaxTier(boatLevel())} débloquées`, sound: () => Sound.chestGet() });
@@ -1784,7 +1931,7 @@ function update(dt) {
       game.float.y += (tip.y - game.float.y) * p * 0.15;
       if (game.t >= 1.6) {
         setState('idle');
-        say(`${CLICK} pour lancer la ligne`);
+        say(`${CLICK} sur le lac pour lancer la ligne`);
       }
       break;
     }
@@ -1795,6 +1942,9 @@ function update(dt) {
 // Décor (pré-rendu une seule fois)
 // ===========================================================================
 let skyLayer, landLayer, waterLayer, fgLayer, boatSprite, floatSprite, bangSprite, bangAbomSprite;
+// masques d'opacité (rives, bateau) pour savoir si un clic tombe sur le lac : voir onLake()
+let fgMask = null;
+const boatMask = { sprite: null, data: null };
 let corruptSkyLayer, massLayer;
 let duskSkyLayer, nightSkyLayer, overcastSkyLayer, stormSkyLayer, rainbowLayer, fogLayer;
 let sunSprite, bigHalo, moonSprite, lanternGlow;
@@ -2107,6 +2257,7 @@ function buildScene() {
 
   // --- rives au premier plan (blocs de terre et d'herbe)
   fgLayer = makeCanvas(LW, LH);
+  fgMask = null;                                   // recalculé au premier clic
   c = fgLayer.getContext('2d');
   const T = 8;
   const leftCols = [11, 11, 10, 10, 9, 8, 6, 4, 2];
@@ -2735,10 +2886,37 @@ function drawPotMarkers() {
 }
 
 function potAt(clientX, clientY) {
-  const r = canvas.getBoundingClientRect();
-  const x = ((clientX - r.left) / r.width) * LW;
-  const y = ((clientY - r.top) / r.height) * LH;
+  const { x, y } = canvasPoint(clientX, clientY);
   return progress.pots.findIndex((p, i) => p && Math.abs(x - POT_SLOTS[i].x) < 14 && y > POT_SLOTS[i].y - 26 && y < POT_SLOTS[i].y + 10);
+}
+
+// Position d'un clic dans l'image du jeu (480 × 270)
+function canvasPoint(clientX, clientY) {
+  const r = canvas.getBoundingClientRect();
+  return { x: ((clientX - r.left) / r.width) * LW, y: ((clientY - r.top) / r.height) * LH };
+}
+
+// Le point (x, y) est-il sur le lac ? Sous l'horizon, hors des rives du premier plan et hors du
+// bateau : on teste l'opacité réelle des calques (au pixel près), pas un rectangle approximatif.
+function onLake(x, y) {
+  if (!(x >= 2 && x < LW - 2 && y >= HORIZON + 6 && y < LH - 3)) return false;
+  const xi = Math.floor(x), yi = Math.floor(y);
+  fgMask ||= fgLayer.getContext('2d').getImageData(0, 0, LW, LH).data;
+  if (fgMask[(yi * LW + xi) * 4 + 3] > 0) return false;
+  // le bateau (dessiné en BOAT_X - 60 - BOAT_SPR.px, BOAT_Y - 24 - BOAT_SPR.py ; marge d'un pixel)
+  if (boatMask.sprite !== boatSprite) {
+    boatMask.sprite = boatSprite;
+    boatMask.data = boatSprite.getContext('2d').getImageData(0, 0, boatSprite.width, boatSprite.height).data;
+  }
+  const bx = xi - (BOAT_X - 60 - BOAT_SPR.px), by = yi - (BOAT_Y - 24 - BOAT_SPR.py);
+  for (let dy = -2; dy <= 2; dy++) {
+    for (let dx = -2; dx <= 2; dx++) {
+      const px = bx + dx, py = by + dy;
+      if (px >= 0 && py >= 0 && px < boatSprite.width && py < boatSprite.height
+        && boatMask.data[(py * boatSprite.width + px) * 4 + 3] > 0) return false;
+    }
+  }
+  return true;
 }
 
 function render() {
@@ -2793,6 +2971,7 @@ function renderScene() {
   }
   if (inGame) LAKE_EYES.forEach(drawLakeEye);
   drawWaterFx();
+  if (inGame) drawBubbles();
   drawCthulhuRising();
   drawRipples();
   if (inGame) drawPots();
@@ -3216,7 +3395,7 @@ function enterGame() {
   drops.length = 0;
   updateHud();
   setState('idle');
-  say(`${CLICK} pour lancer la ligne`);
+  say(`${CLICK} sur le lac pour lancer la ligne`);
   cloudAutoEnable();                               // sauvegarde en ligne activée par défaut
   tutoMaybeStart();                                // pêche d'entraînement / astuce sauvegarde
 }
@@ -3368,9 +3547,8 @@ $('btn-leaderboard').addEventListener('click', () => openPanel('leaderboard'));
 
 // ---------------------------------------------------------------------------
 // Classement en ligne, sur le même serveur que la sauvegarde en ligne (server/cloud-save/) :
-//  - « Envoyer mon score » active la sauvegarde en ligne si besoin, puis inscrit le pseudo ;
-//  - le score est calculé par le serveur à partir de la sauvegarde en ligne (protégée par la clé),
-//    puis mis à jour à chaque envoi de sauvegarde ;
+//  - aucun envoi manuel : chaque sauvegarde en ligne met à jour le score du joueur ;
+//  - le score est calculé par le serveur à partir de la sauvegarde en ligne (protégée par la clé) ;
 //  - le jeu lit les 50 premiers de chaque catégorie (GET /v1/leaderboard).
 // ---------------------------------------------------------------------------
 // même règle que le serveur (NAME_RE dans worker.js) : vérifiée dès la création du personnage
@@ -3387,8 +3565,7 @@ const LB_CATS = [
 const lbData = {};                        // par catégorie : { at, updated, total, players }
 let lbCat = 'earned';
 let lbStatus = '';
-let lbHint = '';                          // message d'envoi (prioritaire sur la consigne par défaut)
-let lbBusy = false;
+let lbHint = '';                          // message ponctuel (prioritaire sur la consigne par défaut)
 const LB_MAX_BYTES = 256 * 1024;          // 50 joueurs pèsent ~10 Ko
 
 // Le classement téléchargé est une donnée réseau non fiable : chaque joueur est reconstruit
@@ -3447,46 +3624,10 @@ function renderLeaderboard() {
     : '<p class="lb-empty">Personne au classement pour le moment. Soyez le premier !</p>';
   $('lb-updated').textContent = data?.updated
     ? `${fmtNum(data.total)} joueur${data.total > 1 ? 's' : ''} · mis à jour le ${fmtWhen(data.updated)}` : '';
-  const ranked = !!cloud.link?.ranked;
-  const btn = $('lb-submit');
-  btn.disabled = !inGame || admin.on || lbBusy || !cloudOn();
-  btn.textContent = ranked ? 'Mettre à jour mon score' : 'Envoyer mon score';
-  $('lb-hint').textContent = lbHint || (!inGame ? 'Lancez une partie pour envoyer votre score.'
-    : admin.on ? 'Les scores ne peuvent pas être envoyés en mode admin.'
-    : ranked ? 'Vous êtes au classement : votre score se met à jour tout seul à chaque sauvegarde en ligne.'
-    : 'Votre score est calculé à partir de votre sauvegarde en ligne (activée au besoin), puis mis à jour à chaque sauvegarde.');
-}
-
-async function submitScore() {
-  if (!inGame || admin.on || lbBusy || !cloudOn()) return;
-  const name = (progress.look?.name || '').normalize('NFC');
-  if (!LB_NAME_RE.test(name)) {
-    lbHint = "Votre nom contient des caractères refusés par le classement (autorisés : lettres, chiffres, espace, ' . _ -) : le score ne peut pas être envoyé.";
-    renderLeaderboard();
-    return;
-  }
-  Sound.click();
-  lbBusy = true;
-  lbHint = 'Envoi du score…';
-  renderLeaderboard();
-  try {
-    // 1. sauvegarde en ligne (le score en est tiré par le serveur)
-    if (!cloud.link && !(await cloudEnable())) { lbHint = cloud.msg || 'Sauvegarde en ligne impossible.'; return; }
-    writeSave(true);
-    await cloudPush({ silent: true });             // « trop_tot » : la version en ligne date de moins de 20 s
-    if (cloud.conflict) { lbHint = 'Une version plus avancée de votre partie existe en ligne : choisissez laquelle garder dans Options › Sauvegarde en ligne.'; return; }
-    // 2. inscription / mise à jour au classement
-    const r = await cloudCall('/v1/score', { name: cloud.link.name, key: cloud.link.key, fish: bestFishName(progress) });
-    cloudSetLink({ ...cloud.link, ranked: true });
-    lbHint = `Score enregistré ! Rang ${fmtNum(vInt(r.rank, 1e9))} sur ${fmtNum(vInt(r.total, 1e9))} (pièces gagnées). Il se mettra à jour tout seul à chaque sauvegarde.`;
-    Sound.chestGet();
-    loadLeaderboard(true);
-  } catch (e) {
-    lbHint = e.message || 'Envoi impossible.';
-  } finally {
-    lbBusy = false;
-    renderLeaderboard();
-  }
+  // plus de bouton d'envoi : le serveur met le score à jour à chaque sauvegarde en ligne
+  $('lb-hint').textContent = lbHint || (!cloudOn() ? ''
+    : cloud.link ? 'Votre score se met à jour tout seul, à chaque sauvegarde en ligne.'
+    : 'Activez la sauvegarde en ligne (Options) pour apparaître au classement : votre score suivra ensuite chaque sauvegarde.');
 }
 
 $('lb-tabs').addEventListener('click', (e) => {
@@ -3497,7 +3638,6 @@ $('lb-tabs').addEventListener('click', (e) => {
   loadLeaderboard();
 });
 $('lb-refresh').addEventListener('click', () => { Sound.click(); loadLeaderboard(true); });
-$('lb-submit').addEventListener('click', submitScore);
 
 $('btn-menu').addEventListener('click', (e) => {
   e.currentTarget.blur();
@@ -4082,22 +4222,54 @@ function startTuto(kind, then = null) {
   $('tuto-face').src = papi ? npcPortrait(GRANDPA) : ICONS.save;
   $('tuto-who').textContent = papi ? GRANDPA.name : 'Astuce';
   $('tuto-skip').textContent = papi ? 'Passer l\'entraînement' : 'Passer';
+  // question sur la sauvegarde en ligne : seulement si le serveur est configuré et l'appareil pas encore lié
+  const askCloud = cloudOn() && !cloud.link;
+  if (kind === 'save' && !askCloud && cloud.link) progress.tuto.cloud = 'yes';
+  tuto.steps = kind === 'fish' ? TUTO_FISH : TUTO_SAVE.filter((st) => st.ask !== 'cloud' || askCloud);
+  tuto.answer = '';
   $('tuto').hidden = false;
   showTutoStep();
 }
 
-function tutoSteps() { return tuto.kind === 'fish' ? TUTO_FISH : TUTO_SAVE; }
+function tutoSteps() { return tuto.steps || []; }
 
 function showTutoStep() {
   const steps = tutoSteps();
   const st = steps[tuto.i];
-  tuto.typer.set(tutoWords(tuto.retry || st.text));
+  const ask = st.ask === 'cloud' && !tuto.answer;    // question posée, pas encore de réponse
+  tuto.typer.set(tutoWords(tuto.retry || tuto.answer || st.text));
   $('tuto-step').textContent = `${tuto.i + 1} / ${steps.length}`;
   // bouton Suivant : étapes à lire (sauvegarde, fin de la pêche) ; sinon on attend une action de pêche
-  const manual = tuto.kind === 'save' || st.until === 'next';
+  // ou la réponse à la question (Oui / Non)
+  const manual = (tuto.kind === 'save' || st.until === 'next') && !ask;
   $('tuto-next').hidden = !manual;
+  $('tuto-yes').hidden = !ask;
+  $('tuto-no').hidden = !ask;
+  $('tuto-yes').disabled = false;
+  $('tuto-no').disabled = false;
+  $('tuto-skip').hidden = ask;                       // on répond à la question, on ne la contourne pas
   $('tuto-next').textContent = tuto.i === steps.length - 1 ? 'Terminer' : 'Suivant ›';
   tutoFocus(tuto.kind === 'save' ? st : null);
+}
+
+// Réponse à « Voulez-vous activer la sauvegarde en ligne ? » (retenue dans la partie : progress.tuto.cloud)
+async function tutoAnswerCloud(yes) {
+  if (tuto.kind !== 'save' || tuto.answer) return;
+  $('tuto-yes').disabled = true;
+  $('tuto-no').disabled = true;
+  if (!yes) {
+    progress.tuto.cloud = 'no';
+    try { localStorage.setItem(CLOUD_AUTO_KEY, 'off'); } catch { /* stockage indisponible */ }
+    tuto.answer = TUTO_CLOUD.no;
+  } else {
+    tuto.typer.set(TUTO_CLOUD.busy);
+    const ok = await cloudEnable();
+    if (tuto.kind !== 'save') return;                // tutoriel fermé entre-temps (retour au menu)
+    progress.tuto.cloud = ok ? 'yes' : progress.tuto.cloud;
+    tuto.answer = ok ? TUTO_CLOUD.yes.replace('{cle}', cloud.link.key) : (cloud.msg || 'Activation impossible pour le moment.');
+  }
+  writeSave(true);
+  showTutoStep();
 }
 
 function tutoNext() {
@@ -4105,6 +4277,7 @@ function tutoNext() {
   if (!tuto.typer.done()) { tuto.typer.full(); return; }
   const steps = tutoSteps();
   tuto.retry = '';
+  tuto.answer = '';
   if (++tuto.i >= steps.length) { endTuto(true); return; }
   Sound.page();
   showTutoStep();
@@ -4204,6 +4377,8 @@ requestAnimationFrame(tutoFrame);
 
 $('tuto-next').addEventListener('click', (e) => { e.currentTarget.blur(); Sound.click(); tutoNext(); });
 $('tuto-skip').addEventListener('click', (e) => { e.currentTarget.blur(); Sound.click(); endTuto(false); });
+$('tuto-yes').addEventListener('click', (e) => { e.currentTarget.blur(); Sound.click(); tutoAnswerCloud(true); });
+$('tuto-no').addEventListener('click', (e) => { e.currentTarget.blur(); Sound.click(); tutoAnswerCloud(false); });
 $('tuto-text').addEventListener('click', () => { if (tuto.kind && !tuto.typer.done()) tuto.typer.full(); });
 $('opt-tuto').addEventListener('click', () => {
   if (!inGame) return;
@@ -5524,6 +5699,7 @@ async function cloudEnable({ auto = false } = {}) {
     cloud.lastCode = 'ok';
     cloud.showKey = true;
     try { localStorage.removeItem(CLOUD_AUTO_KEY); } catch { /* stockage indisponible */ }
+    if (inGame) { progress.tuto.cloud = 'yes'; writeSave(true); }   // choix du joueur, retenu dans la partie
     cloudMsg('Sauvegarde en ligne activée ! Notez votre clé : elle ne pourra pas être retrouvée si vous la perdez.');
     // la clé reste consultable dans Options › Sauvegarde en ligne (« Afficher ma clé »)
     pushToast({ icon: ICONS.save, label: 'Sauvegarde en ligne activée', title: escapeHtml(link.key),
@@ -5548,8 +5724,10 @@ async function cloudEnable({ auto = false } = {}) {
 
 // Activée par défaut : à l'entrée en partie, si l'appareil n'est pas lié, que le joueur ne l'a pas
 // délié lui-même et que ce pseudo n'a pas déjà été trouvé pris
+// Réactivation automatique seulement si le joueur a répondu « Oui » à la question du tutoriel
+// (cas d'une partie importée ou restaurée sur un nouvel appareil) : on ne l'active jamais sans lui demander.
 async function cloudAutoEnable() {
-  if (!cloudOn() || cloud.link || !inGame || !progress.look?.name) return;
+  if (!cloudOn() || cloud.link || !inGame || !progress.look?.name || progress.tuto?.cloud !== 'yes') return;
   let pref = null;
   try { pref = localStorage.getItem(CLOUD_AUTO_KEY); } catch { /* stockage indisponible */ }
   if (pref === 'off' || pref === `pris:${normName(progress.look.name)}`) return;
@@ -5612,6 +5790,7 @@ $('cloud-unlink').addEventListener('click', () => {
   cloudUnlink();
   // choix du joueur : plus d'activation automatique sur cet appareil (réactivable à la main)
   try { localStorage.setItem(CLOUD_AUTO_KEY, 'off'); } catch { /* stockage indisponible */ }
+  if (inGame) { progress.tuto.cloud = 'no'; writeSave(true); }
   cloudMsg('Appareil délié. La sauvegarde en ligne est conservée.');
   renderCloud();
 });
@@ -5877,8 +6056,23 @@ canvas.addEventListener('pointerdown', (e) => {
       return;
     }
   }
+  // lancer : le flotteur part à l'endroit cliqué, qui doit être sur le lac
+  if (inGame && game.state === 'idle' && $('overlay').hidden) {
+    const p = canvasPoint(e.clientX, e.clientY);
+    if (!onLake(p.x, p.y)) { say(`${CLICK} sur le lac pour y lancer votre ligne.`); return; }
+    holding = true;
+    onAction(p);
+    return;
+  }
   holding = true;
   onAction();
+});
+// curseur en viseur au-dessus du lac quand la ligne est libre (souris uniquement)
+canvas.addEventListener('pointermove', (e) => {
+  if (e.pointerType !== 'mouse') return;
+  const aim = inGame && game.state === 'idle' && $('overlay').hidden;
+  const p = aim ? canvasPoint(e.clientX, e.clientY) : null;
+  canvas.style.cursor = !aim ? 'pointer' : potAt(e.clientX, e.clientY) >= 0 ? 'pointer' : onLake(p.x, p.y) ? 'crosshair' : 'not-allowed';
 });
 for (const ev of ['pointerup', 'pointercancel', 'blur']) window.addEventListener(ev, () => { holding = false; });
 window.addEventListener('keyup', (e) => { if (e.code === 'Space') holding = false; });

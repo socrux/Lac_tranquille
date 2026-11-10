@@ -152,7 +152,7 @@ const GRANDPA = {
 // {nom} : nom du personnage ; {clic} / {Clic} : « clique » ou « touche » (écran tactile) ;
 // {maintiens} : « maintiens le clic » ou « garde le doigt appuyé ».
 const TUTO_FISH = [
-  { until: 'cast',   text: "Bon, on reprend depuis le début. Pour lancer ta ligne, {clic} n'importe où sur le lac." },
+  { until: 'cast',   text: "Bon, on reprend depuis le début. Pour lancer ta ligne, {clic} sur le lac, là où tu veux que le bouchon tombe." },
   { until: 'bite',   text: "Joli lancer ! Maintenant, patience… Le bouchon va frétiller : ce n'est qu'une touche, on ne bouge pas." },
   { until: 'hook',   text: "Il plonge ! {Clic} tout de suite pour ferrer !" },
   { until: 'landed', text: "Il se débat ! {Maintiens} pour faire monter la barre verte, et garde le poisson dedans. Relâche pour qu'elle redescende." },
@@ -166,12 +166,20 @@ const TUTO_RETRY = {
   escaped: "Il s'est échappé… Pas grave, ça arrive aux meilleurs. Garde bien le poisson dans la barre verte. Relance ta ligne.",
 };
 // Sauvegarde : des flèches montrent où cliquer. target : id de l'élément visé ;
-// panel : panneau à ouvrir avant de montrer l'élément.
+// panel : panneau à ouvrir avant de montrer l'élément ; ask : 'cloud' = question Oui / Non
+// sur la sauvegarde en ligne (étape sautée si l'appareil est déjà lié ou si le serveur n'est pas configuré).
 const TUTO_SAVE = [
-  { target: 'btn-save', text: 'Ce bouton sauvegarde votre partie (raccourci : S). La partie part aussi en ligne, pour la retrouver sur un autre appareil.' },
-  { target: 'hud-options', text: 'La sauvegarde en ligne se règle dans les Options. Le jeu sauvegarde aussi tout seul, régulièrement.' },
-  { target: 'cloud-box', panel: 'options', text: 'Ici, « Afficher ma clé » donne votre clé personnelle. Avec votre pseudo, elle permet de reprendre votre partie sur n\'importe quel appareil : notez-la !' },
+  { target: 'btn-save', text: 'Ce bouton sauvegarde votre partie (raccourci : S). Le jeu sauvegarde aussi tout seul, régulièrement, dans ce navigateur.' },
+  { ask: 'cloud', text: 'Voulez-vous activer la sauvegarde en ligne ? Votre partie sera aussi gardée sur le serveur du jeu, et une clé personnelle vous permettra de la reprendre sur n\'importe quel appareil. Votre score apparaîtra aussi au classement, mis à jour à chaque sauvegarde.' },
+  { target: 'hud-options', text: 'La sauvegarde en ligne se règle dans les Options : vous pourrez l\'activer ou la désactiver quand vous voudrez.' },
+  { target: 'cloud-box', panel: 'options', text: 'C\'est ici. Une fois la sauvegarde en ligne activée, « Afficher ma clé » donne votre clé personnelle : avec votre pseudo, elle permet de reprendre votre partie partout. Notez-la !' },
 ];
+// Réponses à la question de la sauvegarde en ligne ({cle} : la clé générée)
+const TUTO_CLOUD = {
+  yes: 'C\'est fait ! Votre clé personnelle : {cle}. Notez-la bien : vous la retrouverez aussi dans les Options.',
+  no: 'Entendu : votre partie reste dans ce navigateur. Vous pourrez activer la sauvegarde en ligne plus tard, dans les Options.',
+  busy: 'Activation en cours…',
+};
 
 // ===========================================================================
 // Décors en pixel art (dessinés une fois, mis en cache par l'appelant)

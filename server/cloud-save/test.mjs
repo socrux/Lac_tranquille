@@ -39,7 +39,7 @@ const save = { v: 2, gv: '1.4.0', money: 100, look: { name: 'Léa' }, stats: { c
 
 // --- sauvegarde
 let r = await call('/v1/save', { name: 'Léa', key: KEY, save, baseRev: 0 });
-ok('création', r.status === 200 && r.data.rev === 1 && r.data.created, r);
+ok('création (et score automatique)', r.status === 200 && r.data.rev === 1 && r.data.created && r.data.ranked === true, r);
 r = await call('/v1/save', { name: 'LÉA', key: KEY2, save, baseRev: 0 });
 ok('pseudo pris (casse ignorée)', r.status === 409 && r.data.error === 'pseudo_pris', r);
 r = await call('/v1/save', { name: 'Léa', key: KEY, save, baseRev: 1 });
@@ -48,7 +48,7 @@ age();
 r = await call('/v1/save', { name: 'Léa', key: KEY, save: { ...save, money: 200 }, baseRev: 0 });
 ok('révision périmée → conflit', r.status === 409 && r.data.error === 'conflit', r);
 r = await call('/v1/save', { name: 'Léa', key: KEY, save: { ...save, money: 200 }, baseRev: 1 });
-ok('mise à jour', r.status === 200 && r.data.rev === 2 && r.data.ranked === false, r);
+ok('mise à jour', r.status === 200 && r.data.rev === 2 && r.data.ranked === true, r);
 r = await call('/v1/load', { name: 'léa', key: KEY });
 ok('chargement', r.status === 200 && r.data.save.money === 200 && r.data.rev === 2, r);
 r = await call('/v1/load', { name: 'Léa', key: KEY2 });
@@ -74,13 +74,14 @@ ok('champ de requête inconnu', r.status === 400, r);
 
 // --- classement
 r = await call('/v1/leaderboard?cat=earned', null, null, 'GET');
-ok('classement vide', r.status === 200 && r.data.players.length === 0 && r.data.total === 0, r);
+ok('classement automatique dès la sauvegarde', r.status === 200 && r.data.total === 1 && r.data.players[0]?.name === 'Léa' && r.data.players[0]?.earned === 500, r);
 r = await call('/v1/score', { name: 'Léa', key: KEY2, fish: 'Perche' });
 ok('score : mauvaise clé', r.status === 403, r);
 r = await call('/v1/score', { name: 'Personne', key: KEY, fish: '' });
 ok('score : sans sauvegarde en ligne', r.status === 403, r);
+age();
 r = await call('/v1/score', { name: 'Léa', key: KEY, fish: 'Perche' });
-ok('inscription au classement', r.status === 200 && r.data.rank === 1 && r.data.total === 1 && r.data.earned === 500, r);
+ok('route /v1/score (jeux 1.5.x)', r.status === 200 && r.data.rank === 1 && r.data.total === 1 && r.data.earned === 500, r);
 r = await call('/v1/score', { name: 'Léa', key: KEY, fish: 'Perche' });
 ok('score : envoi trop rapproché', r.status === 429, r);
 // score calculé depuis la sauvegarde : la plus grosse prise, le carnet, les jours, le bateau
@@ -104,9 +105,8 @@ r = await call('/v1/save', { name: 'Léa', key: KEY, save: { ...save, stats: { .
 const lb = await call('/v1/leaderboard?cat=earned', null, null, 'GET');
 ok('score incohérent ignoré', r.status === 200 && lb.data.players[0].earned === 900, [r, lb.data.players[0]]);
 // deuxième joueur, ordre du classement
-await call('/v1/save', { name: 'Bob', key: KEY2, save: { ...save, look: { name: 'Bob' }, stats: { ...save.stats, earned: 2000 } }, baseRev: 0 });
-r = await call('/v1/score', { name: 'Bob', key: KEY2, fish: '' });
-ok('second joueur 1er', r.status === 200 && r.data.rank === 1 && r.data.total === 2, r);
+r = await call('/v1/save', { name: 'Bob', key: KEY2, save: { ...save, look: { name: 'Bob' }, stats: { ...save.stats, earned: 2000 } }, baseRev: 0 });
+ok('second joueur classé dès sa sauvegarde', r.status === 200 && r.data.ranked === true, r);
 r = await call('/v1/leaderboard?cat=earned', null, null, 'GET');
 ok('ordre du classement', r.data.players.map((p) => p.name).join(',') === 'Bob,Léa', r.data.players);
 r = await call('/v1/leaderboard?cat=heaviest', null, null, 'GET');
@@ -119,6 +119,8 @@ ok('POST sur le classement refusé', r.status === 405, r);
 await call('/v1/save', { name: 'Triche', key: KEY, save: { ...save, look: { name: 'Triche' }, stats: { caught: 10, casts: 1 } }, baseRev: 0 });
 r = await call('/v1/score', { name: 'Triche', key: KEY, fish: '' });
 ok('score incohérent refusé', r.status === 422 && r.data.error === 'score_refuse', r);
+r = await call('/v1/leaderboard?cat=earned', null, null, 'GET');
+ok('sauvegarde incohérente : absente du classement', !r.data.players.some((p) => p.name === 'Triche'), r.data.players);
 
 // --- suppression : sauvegarde et score
 r = await call('/v1/delete', { name: 'Léa', key: KEY2 });

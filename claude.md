@@ -8,7 +8,11 @@ Thème Lovecraftien léger (abominations, Cthulhu). Mono-joueur, sauvegarde loca
 sauvegarde en ligne et classement sur un Worker Cloudflare + D1 (`server/cloud-save/`).
 
 - **Version actuelle** : voir `GAME_VERSION` dans `game.js` (format MAJEUR.MINEUR.CORRECTIF —
-  incrémenter à chaque pull request).
+  incrémenter à chaque pull request). **La même version est écrite dans `index.html`** :
+  `<meta name="game-version">` et le `?v=` de `style.css` et de chaque script. Les trois doivent
+  toujours être identiques : le `?v=` force le rechargement des fichiers après une mise à jour
+  (GitHub Pages les garde 10 minutes en cache), et game.js recharge la page si la balise `<meta>`
+  ne correspond pas à `GAME_VERSION`.
 - **Langue** : code, commentaires et UI en français.
 
 ## Architecture des fichiers
@@ -110,6 +114,6 @@ l'évaluation complète de game.js (c'est le cas : chargement depuis le menu ou 
 ## Définition de « terminé »
 
 - Le jeu fonctionne en ouvrant simplement `index.html` (aucune étape de build).
-- La version `GAME_VERSION` est incrémentée.
+- La version `GAME_VERSION` est incrémentée, ainsi que `game-version` et les `?v=` d'`index.html`.
 - Les modifications respectent les conventions ci-dessus.
 - Données non fiables traitées : échappées/validées avant affichage ou stockage.
