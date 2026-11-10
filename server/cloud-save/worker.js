@@ -4,10 +4,13 @@
 // Le serveur ne stocke que l'empreinte SHA-256 de la clé. Aucun cookie, aucune session :
 // chaque requête porte le pseudo et la clé dans son corps JSON (jamais dans l'URL, jamais loguée).
 //
-// Routes (toutes en POST, corps JSON, 64 Ko max sauf /save) :
-//   POST /v1/save    { name, key, save, baseRev }  crée la place (pseudo libre) ou met à jour
-//   POST /v1/load    { name, key }                  renvoie { save, rev, updatedAt }
-//   POST /v1/delete  { name, key }                  supprime la sauvegarde en ligne
+// Routes (corps JSON, 4 Ko max sauf /save) :
+//   POST /v1/save         { name, key, save, baseRev, fish? }  crée la place (pseudo libre) ou met à jour ;
+//                         si le pseudo est au classement, son score est recalculé au passage
+//   POST /v1/load         { name, key }         renvoie { save, rev, updatedAt }
+//   POST /v1/delete       { name, key }         supprime la sauvegarde en ligne (et le score)
+//   POST /v1/score        { name, key, fish }   inscrit / met à jour le pseudo au classement
+//   GET  /v1/leaderboard?cat=earned             les 50 premiers d'une catégorie
 //
 // Sécurité (cf. CLAUDE.md) : schéma strict, tailles bornées, requêtes SQL paramétrées,
 // limitation du débit (binding RATE_LIMITER), journaux sans données personnelles.
@@ -28,7 +31,7 @@ const MIN_WRITE_GAP_MS = 20 * 1000; // une écriture toutes les 20 s au plus par
 const SAVE_FIELDS = new Set([
   'v', 'gv', 'money', 'rod', 'rods', 'bait', 'baits', 'dex', 'potsOwned', 'pots', 'achievements', 'look',
   'boat', 'items', 'equip', 'itemSeq', 'clock', 'weather', 'curse', 'catches', 'bank', 'market', 'bric',
-  'met', 'stats',
+  'met', 'stats', 'tuto',
 ]);
 const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 const LIMITS = { depth: 8, nodes: 20000, keys: 400, array: 1000, string: 200, key: 64, number: 1e15 };
@@ -83,9 +86,18 @@ function validSave(save) {
 
 function validName(name) {
   if (typeof name !== 'string') fail(400, 'pseudo', 'Pseudo invalide.');
+  // Normalisation du pseudo : NFC + trim + toLocaleLowerCase('fr'). Identique à normName() de game.js
+  // et à lookNameId() ci-dessous : toute modification doit être reportée aux trois endroits.
   const display = name.normalize('NFC').trim();
   if (!NAME_RE.test(display)) fail(400, 'pseudo', 'Pseudo invalide.');
   return { display, id: display.toLocaleLowerCase('fr') };
+}
+
+// Nom du personnage de la sauvegarde, normalisé comme le pseudo (validName / normName de game.js),
+// ou null s'il est absent ou n'est pas une chaîne (le jeu revalide de toute façon avec validProgress)
+function lookNameId(save) {
+  const n = save.look && typeof save.look === 'object' && !Array.isArray(save.look) ? save.look.name : undefined;
+  return typeof n === 'string' ? n.normalize('NFC').trim().toLocaleLowerCase('fr') : null;
 }
 
 function validKey(key) {
@@ -147,7 +159,7 @@ function corsHeaders(request, env) {
   const origin = request.headers.get('origin') || '';
   const allow = allowed.includes('*') ? '*' : allowed.includes(origin) ? origin : '';
   const h = {
-    'access-control-allow-methods': 'POST, OPTIONS',
+    'access-control-allow-methods': 'GET, POST, OPTIONS',
     'access-control-allow-headers': 'content-type',
     'access-control-max-age': '86400',
     vary: 'Origin',
@@ -201,13 +213,127 @@ async function ownedRow(env, name, key) {
   return row;
 }
 
+// --- Classement ------------------------------------------------------------------------------
+// Le score n'est pas envoyé par le jeu : il est calculé ici à partir de la sauvegarde en ligne du
+// pseudo (protégée par sa clé). Seul le nom affiché de la plus grosse prise vient du jeu.
+const DAY_LEN = 600;                                // un jour de jeu = 600 s (world.js)
+const BOAT_MAX = 5;
+const FISH_RE = /^[\p{L}\p{M} '’-]{0,40}$/u;
+const SCORE_GAP_MS = 30 * 1000;                     // inscription manuelle : une toutes les 30 s
+const LB_SIZE = 50;
+// catégories → colonne SQL (liste blanche : la colonne n'est jamais tirée de la requête)
+const LB_CATS = {
+  earned: 'earned', heaviest: 'heaviest_kg', dex: 'dex', days: 'days', boat: 'boat', cthulhu: 'cthulhu',
+};
+
+const isPlainObj = (x) => !!x && typeof x === 'object' && !Array.isArray(x);
+const nat = (x) => (typeof x === 'number' && Number.isFinite(x) && x >= 0 ? Math.floor(x) : 0);
+
+function scoreFromSave(save, fish) {
+  const st = isPlainObj(save.stats) ? save.stats : {};
+  const best = isPlainObj(st.best) ? st.best : {};
+  const kg = typeof best.weight === 'number' && Number.isFinite(best.weight) && best.weight > 0 ? best.weight : 0;
+  const f = typeof fish === 'string' ? fish.normalize('NFC').trim() : '';
+  return {
+    earned: nat(st.earned), caught: nat(st.caught), casts: nat(st.casts), aboms: nat(st.aboms),
+    cthulhu: nat(st.cthulhu), playTime: nat(st.playTime),
+    dex: isPlainObj(save.dex) ? Object.keys(save.dex).length : 0,
+    days: Math.floor(nat(save.clock) / DAY_LEN) + 1,
+    boat: Math.max(1, nat(isPlainObj(save.boat) ? save.boat.level : 1)),
+    heaviestKg: Math.round(kg * 1000) / 1000,
+    heaviestFish: kg > 0 && FISH_RE.test(f) ? f : '',
+    version: typeof save.gv === 'string' && GV_RE.test(save.gv) ? save.gv : null,
+  };
+}
+
+// Cohérence d'un score (reprise des contrôles de l'ancien classement GitHub). Renvoie la raison
+// d'un refus, ou null. Plafonds larges : ils écartent les valeurs impossibles, pas les bons joueurs.
+function scoreProblem(s) {
+  const hours = s.playTime / 3600;
+  if (s.caught > s.casts) return 'plus de prises que de lancers';
+  if (s.aboms > s.caught + 2000) return "nombre d'abominations incohérent";
+  if (s.boat > BOAT_MAX) return 'niveau de bateau invalide';
+  if (s.dex > 200) return 'carnet incohérent';
+  if (s.cthulhu > s.caught) return 'plus de Grands Anciens que de prises';
+  if (s.heaviestKg > 40000) return 'prise trop lourde pour être vraie';
+  if (s.earned > 50000 + hours * 400000) return 'trop de pièces gagnées pour le temps de jeu';
+  if (s.earned > 50000 + s.caught * 10000 + s.cthulhu * 250000 + hours * 100000) return 'pièces gagnées incohérentes avec le nombre de prises';
+  if (s.caught > 50 + hours * 1500) return 'trop de prises pour le temps de jeu';
+  if (s.days > 3 + (s.playTime / 600) * 4) return 'trop de jours pour le temps de jeu';
+  return null;
+}
+
+// Écriture « meilleur de chaque catégorie » (dans un UPDATE SQLite, les colonnes à droite des =
+// désignent toutes l'ancienne ligne : l'ordre des affectations n'a pas d'importance).
+function upsertScore(env, name, s, now) {
+  return env.DB.prepare(`INSERT INTO scores
+      (name, display, earned, caught, aboms, dex, days, boat, cthulhu, play_time, heaviest_kg, heaviest_fish, version, updated_at)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+    ON CONFLICT(name) DO UPDATE SET
+      display = excluded.display,
+      earned = max(earned, excluded.earned), caught = max(caught, excluded.caught),
+      aboms = max(aboms, excluded.aboms), dex = max(dex, excluded.dex), days = max(days, excluded.days),
+      boat = max(boat, excluded.boat), cthulhu = max(cthulhu, excluded.cthulhu),
+      play_time = max(play_time, excluded.play_time),
+      heaviest_fish = CASE WHEN excluded.heaviest_kg > heaviest_kg THEN excluded.heaviest_fish ELSE heaviest_fish END,
+      heaviest_kg = max(heaviest_kg, excluded.heaviest_kg),
+      version = excluded.version, updated_at = excluded.updated_at`)
+    .bind(name.id, name.display, s.earned, s.caught, s.aboms, s.dex, s.days, s.boat, s.cthulhu, s.playTime,
+      s.heaviestKg, s.heaviestFish, s.version, now)
+    .run();
+}
+
+async function routeScore(request, env) {
+  const body = await readJson(request, SMALL_BODY_MAX);
+  onlyFields(body, ['name', 'key', 'fish']);
+  const name = validName(body.name);
+  const row = await ownedRow(env, name, validKey(body.key));
+  const prev = await env.DB.prepare('SELECT updated_at FROM scores WHERE name = ?1').bind(name.id).first();
+  const now = Date.now();
+  if (prev && now - prev.updated_at < SCORE_GAP_MS) fail(429, 'trop_tot', 'Score déjà envoyé il y a quelques secondes.');
+  const s = scoreFromSave(JSON.parse(row.data), body.fish);
+  const why = scoreProblem(s);
+  if (why) fail(422, 'score_refuse', `Score refusé : ${why}.`);
+  await upsertScore(env, name, s, now);
+  const me = await env.DB.prepare('SELECT earned FROM scores WHERE name = ?1').bind(name.id).first();
+  const rank = await env.DB.prepare('SELECT COUNT(*) AS n FROM scores WHERE earned > ?1').bind(me.earned).first();
+  const total = await env.DB.prepare('SELECT COUNT(*) AS n FROM scores').first();
+  return { rank: rank.n + 1, total: total.n, earned: me.earned };
+}
+
+async function routeLeaderboard(request, env) {
+  const cat = new URL(request.url).searchParams.get('cat') || 'earned';
+  if (!Object.hasOwn(LB_CATS, cat)) fail(400, 'categorie', 'Catégorie inconnue.');
+  const col = LB_CATS[cat];
+  const { results } = await env.DB.prepare(
+    `SELECT display, earned, caught, aboms, dex, days, boat, cthulhu, play_time, heaviest_kg, heaviest_fish, updated_at
+     FROM scores WHERE ${col} > 0 ORDER BY ${col} DESC, updated_at ASC LIMIT ?1`,
+  ).bind(LB_SIZE).all();
+  const meta = await env.DB.prepare('SELECT COUNT(*) AS n, MAX(updated_at) AS updated FROM scores').first();
+  return {
+    cat,
+    total: meta?.n || 0,
+    updated: meta?.updated || null,
+    players: (results || []).map((r) => ({
+      name: r.display, earned: r.earned, caught: r.caught, aboms: r.aboms, dex: r.dex, days: r.days,
+      boat: r.boat, cthulhu: r.cthulhu, playTime: r.play_time,
+      heaviest: { kg: r.heaviest_kg, fish: r.heaviest_fish }, updatedAt: r.updated_at,
+    })),
+  };
+}
+
 // --- Routes ---------------------------------------------------------------------------------
 async function routeSave(request, env) {
   const body = await readJson(request, BODY_MAX);
-  onlyFields(body, ['name', 'key', 'save', 'baseRev']);
+  onlyFields(body, ['name', 'key', 'save', 'baseRev', 'fish']);
   const name = validName(body.name);
   const key = validKey(body.key);
   const save = validSave(body.save);
+  // une sauvegarde est rangée sous le pseudo de son personnage, jamais sous un autre
+  const lookId = lookNameId(save);
+  if (lookId !== null && lookId !== name.id) {
+    fail(422, 'nom_personnage', 'Le nom du personnage ne correspond pas au pseudo de la sauvegarde en ligne.');
+  }
   const baseRev = Number.isSafeInteger(body.baseRev) && body.baseRev >= 0 ? body.baseRev : 0;
   const data = JSON.stringify(save);
   if (data.length > BODY_MAX) fail(413, 'trop_gros', 'Sauvegarde trop volumineuse.');
@@ -232,7 +358,17 @@ async function routeSave(request, env) {
     'UPDATE saves SET data = ?1, gv = ?2, rev = rev + 1, updated_at = ?3 WHERE name = ?4 AND key_hash = ?5 AND rev = ?6',
   ).bind(data, gv, now, name.id, keyHash, row.rev).run();
   if (!res.meta?.changes) fail(409, 'conflit', 'Une version plus récente existe en ligne.');
-  return { rev: row.rev + 1, updatedAt: now, created: false };
+  // pseudo inscrit au classement : son score suit la sauvegarde (un score incohérent est ignoré,
+  // la sauvegarde, elle, est bien enregistrée)
+  let ranked = false;
+  try {
+    if (await env.DB.prepare('SELECT 1 AS x FROM scores WHERE name = ?1').bind(name.id).first()) {
+      ranked = true;
+      const s = scoreFromSave(save, body.fish);
+      if (!scoreProblem(s)) await upsertScore(env, name, s, now);
+    }
+  } catch { /* table absente ou erreur : la sauvegarde reste valide */ }
+  return { rev: row.rev + 1, updatedAt: now, created: false, ranked };
 }
 
 async function routeLoad(request, env) {
@@ -250,10 +386,15 @@ async function routeDelete(request, env) {
   const key = validKey(body.key);
   await ownedRow(env, name, key);
   await env.DB.prepare('DELETE FROM saves WHERE name = ?1 AND key_hash = ?2').bind(name.id, await sha256Hex(key)).run();
+  try { await env.DB.prepare('DELETE FROM scores WHERE name = ?1').bind(name.id).run(); } catch { /* pas de classement */ }
   return { deleted: true };
 }
 
-const ROUTES = { '/v1/save': routeSave, '/v1/load': routeLoad, '/v1/delete': routeDelete };
+const ROUTES = {
+  '/v1/save': routeSave, '/v1/load': routeLoad, '/v1/delete': routeDelete, '/v1/score': routeScore,
+  '/v1/leaderboard': routeLeaderboard,
+};
+const GET_ROUTES = new Set(['/v1/leaderboard']);   // lecture seule ; toutes les autres routes : POST
 
 export default {
   async fetch(request, env) {
@@ -263,7 +404,8 @@ export default {
       if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
       const route = ROUTES[url.pathname];
       if (!route) fail(404, 'route', 'Route inconnue.');
-      if (request.method !== 'POST') fail(405, 'methode', 'POST attendu.');
+      const method = GET_ROUTES.has(url.pathname) ? 'GET' : 'POST';
+      if (request.method !== method) fail(405, 'methode', `${method} attendu.`);
       await rateLimit(env, request.headers.get('cf-connecting-ip') || 'local');
       return json(200, await route(request, env), cors);
     } catch (e) {

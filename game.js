@@ -14,7 +14,15 @@ const BOAT_Y = 222;          // haut de la coque
 const $ = (id) => document.getElementById(id);
 
 // Version du jeu : à mettre à jour à chaque pull request (MAJEUR.MINEUR.CORRECTIF)
-const GAME_VERSION = '1.4.0';
+const GAME_VERSION = '1.5.0';
+// Nouveautés affichées sur le menu de départ (les points importants ; le détail est dans CHANGELOG.md)
+const WHATS_NEW = [
+  'Nouveau classement en ligne, instantané et mis à jour à chaque sauvegarde',
+  'Bouton « Sauver » dans la barre d\'icônes (touche S)',
+  'Sauvegarde en ligne activée par défaut : votre partie vous suit partout',
+  'Tutoriel : Papi Émile vous réapprend à pêcher',
+  'Astuces fléchées pour la sauvegarde',
+];
 // Écran tactile principal (téléphone, tablette) : consignes « Touchez » au lieu de « Cliquez »
 const TOUCH = !!window.matchMedia?.('(pointer: coarse)').matches;
 const CLICK = TOUCH ? 'Touchez' : 'Cliquez';
@@ -335,6 +343,7 @@ function emptyProgress() {
     market: { day: 0, index: MARKET.base, history: [] },
     bric: { day: 0, stock: [], sold: [] },
     met: {},
+    tuto: { fish: false, save: false },   // tutoriels terminés (pêche avec grand-père, sauvegarde)
     stats: {
       casts: 0, caught: 0, missed: 0, early: 0, aboms: 0, perfects: 0, chests: 0,
       crusts: 0, potsCollected: 0, cthulhu: 0, earned: 0, spent: 0, playTime: 0, best: null,
@@ -541,6 +550,11 @@ function validProgress(raw) {
     ? { id: best.id, abom: best.abom === true, weight: vNum(best.weight, 1e5), size: vNum(best.size, 1e5) }
     : null;
   });
+  // tutoriels : une partie déjà commencée (au moins un poisson) n'a pas besoin de la pêche d'entraînement
+  step('tutoriels', () => {
+    const tu = vObj(s.tuto);
+    p.tuto = { fish: tu.fish === true || p.stats.caught > 0, save: tu.save === true };
+  });
   return p;
 }
 
@@ -588,10 +602,10 @@ function loadSave() {
 function readBackupRaw() {
   try { return JSON.parse(localStorage.getItem(SAVE_BACKUP_KEY))?.save ?? null; } catch { return null; }
 }
-function writeSave() {
+function writeSave(localOnly = false) {
   // gv : version du jeu qui a écrit la sauvegarde (sert à la copie de sécurité au changement de version)
   try { localStorage.setItem(SAVE_KEY, JSON.stringify({ ...progress, gv: GAME_VERSION })); } catch { /* stockage indisponible */ }
-  if (inGame) cloudAuto();
+  if (inGame && !localOnly) cloudAuto();
 }
 function clearSave() {
   backupSave(readRawSave(), 'nouvelle partie');
@@ -605,7 +619,10 @@ const CLOUD_SAVE = { url: 'https://lac-tranquille-saves.cloudflare-blissful748.w
 const CLOUD_LINK_KEY = 'lacTranquille.cloud';      // { name, key, rev, at } : lien de cet appareil
 const CLOUD_KEY_RE = /^LAC(-[0-9A-HJKMNP-TV-Z]{5}){4}$/;
 const CLOUD_AUTO_MS = 5 * 60 * 1000;               // envoi automatique au plus toutes les 5 minutes
-const cloud = { link: null, busy: false, lastPush: 0, conflict: null, msg: '', showKey: false };
+const cloud = { link: null, busy: false, lastPush: 0, conflict: null, msg: '', showKey: false, lastCode: '' };
+// Activation automatique (par défaut) : 'off' si le joueur a délié l'appareil lui-même,
+// 'pris:<pseudo>' si ce pseudo a déjà une sauvegarde en ligne (pas de nouvelle tentative)
+const CLOUD_AUTO_KEY = 'lacTranquille.cloud.auto';
 
 // ===========================================================================
 // État du jeu
@@ -777,6 +794,11 @@ function rodTip() {
 // Pêche
 // ===========================================================================
 function pickFish() {
+  // pêche d'entraînement : le poisson le plus calme du lac, jamais une abomination
+  if (tuto.fishing) {
+    const easy = FISH.filter((f) => !f.unique).reduce((a, b) => (fishVigor(b, false) < fishVigor(a, false) ? b : a));
+    return { f: easy, abom: false };
+  }
   if (admin.on && admin.forced !== 'random') {
     const [id, ab] = admin.forced.split(':');
     if (FISH_BY_ID[id]) return { f: FISH_BY_ID[id], abom: ab === 'abom' };
@@ -824,8 +846,8 @@ function startWaiting() {
   game.float.y = game.float.to.y;
   addRipple(game.float.x, game.float.y, 1.3);
   const wait = rod().speed * (1 - mods().speed);
-  game.biteAt = rand(3, 10) * wait;
-  game.nextNibble = rand(0.8, 2.2) * wait;
+  game.biteAt = tuto.fishing ? rand(3.5, 5) : rand(3, 10) * wait;   // entraînement : une touche, puis ça mord
+  game.nextNibble = tuto.fishing ? 1.4 : rand(0.8, 2.2) * wait;
   game.nibble = 0;
   setState('waiting');
   say(game.baitRanOut ? `Plus de ${game.baitRanOut} ! Retour à la mie de pain. Patience…` : 'Patience…');
@@ -834,7 +856,8 @@ function startWaiting() {
 
 function reactionWindow() {
   const { f, abom } = game.fish;
-  return Math.max(0.3, f.window * (abom ? 0.85 : 1) + rod().window + mods().window);
+  const w = Math.max(0.3, f.window * (abom ? 0.85 : 1) + rod().window + mods().window);
+  return tuto.fishing ? Math.max(1.6, w * 2) : w;                     // entraînement : le temps de lire la consigne
 }
 
 function rollCatch(f, abom) {
@@ -1288,7 +1311,7 @@ function startReel(phase = 0) {
   const cp = f.unique ? CTH_PHASES[phase] : null;
   const bs = barSize() * (cp ? cp.bar : 1);
   game.mg = {
-    vigor: cp ? cp.vigor * (0.6 + 0.4 * rod().vigor) * (1 - mods().vigor * 0.5) : fishVigor(f, abom),
+    vigor: cp ? cp.vigor * (0.6 + 0.4 * rod().vigor) * (1 - mods().vigor * 0.5) : fishVigor(f, abom) * (tuto.fishing ? 0.5 : 1),
     phase: cp ? phase : -1,
     fillMul: cp ? cp.fill : 1,
     barSize: bs,
@@ -1302,7 +1325,7 @@ function startReel(phase = 0) {
     perfect: true,
     tick: 0,
     t: 0,
-    chest: !cp && Math.random() < chestChance()
+    chest: !cp && !tuto.fishing && Math.random() < chestChance()
       ? { pos: rand(0.08, 0.92), appearAt: rand(0.8, 3), visible: false, progress: 0, got: false, inZone: false, flash: 0 }
       : null,
     from: { x: game.float.x, y: game.float.y },
@@ -1684,6 +1707,7 @@ function update(dt) {
   game.t += dt;
   saveTimer += dt;
   if (saveTimer > 15) { saveTimer = 0; writeSave(); }
+  tutoTick();
 
   switch (game.state) {
     case 'casting': {
@@ -3150,6 +3174,13 @@ function dropHtml(d) {
 
 let confirmNew = false;
 
+// Encart « nouveautés » du menu : version et points importants (textes internes, via textContent)
+function renderNews() {
+  $('news-title').textContent = `Version ${GAME_VERSION} : quoi de neuf ?`;
+  $('news-list').replaceChildren(...WHATS_NEW.map((t) => Object.assign(document.createElement('li'), { textContent: t })));
+}
+renderNews();
+
 function refreshMenu() {
   const save = loadSave();
   confirmNew = false;
@@ -3186,9 +3217,12 @@ function enterGame() {
   updateHud();
   setState('idle');
   say(`${CLICK} pour lancer la ligne`);
+  cloudAutoEnable();                               // sauvegarde en ligne activée par défaut
+  tutoMaybeStart();                                // pêche d'entraînement / astuce sauvegarde
 }
 
 function showMenu() {
+  tutoAbort();
   closePanel();
   abandonCatch();
   if (inGame) writeSave();
@@ -3333,15 +3367,15 @@ $('btn-options').addEventListener('click', () => openPanel('options'));
 $('btn-leaderboard').addEventListener('click', () => openPanel('leaderboard'));
 
 // ---------------------------------------------------------------------------
-// Classement en ligne, sans serveur :
-//  - « Envoyer mon score » ouvre une issue GitHub pré-remplie (titre « [Score] … » + bloc JSON signé) ;
-//  - une GitHub Action vérifie le score et met à jour leaderboard.json dans le dépôt ;
-//  - le jeu lit leaderboard.json directement sur GitHub.
+// Classement en ligne, sur le même serveur que la sauvegarde en ligne (server/cloud-save/) :
+//  - « Envoyer mon score » active la sauvegarde en ligne si besoin, puis inscrit le pseudo ;
+//  - le score est calculé par le serveur à partir de la sauvegarde en ligne (protégée par la clé),
+//    puis mis à jour à chaque envoi de sauvegarde ;
+//  - le jeu lit les 50 premiers de chaque catégorie (GET /v1/leaderboard).
 // ---------------------------------------------------------------------------
-const LEADERBOARD = { repo: 'socrux/Lac_tranquille', branch: 'main', salt: 'lac-tranquille/score/v1' };
-// même règle que scripts/leaderboard.mjs (NAME_RE) : vérifiée avant l'envoi pour prévenir le joueur
+// même règle que le serveur (NAME_RE dans worker.js) : vérifiée dès la création du personnage
 const LB_NAME_RE = /^[\p{L}\p{M}\p{N} '’._-]{1,16}$/u;
-const LB_FIELDS = ['v', 'version', 'name', 'earned', 'caught', 'casts', 'aboms', 'heaviestKg', 'heaviestFish', 'dex', 'days', 'boat', 'cthulhu', 'playTime'];
+const LB_CACHE_MS = 30 * 1000;            // une catégorie déjà chargée n'est pas redemandée avant 30 s
 const LB_CATS = [
   { id: 'earned',   name: 'Pièces gagnées',   val: (p) => p.earned,           fmt: (p) => `${fmtNum(p.earned)} ${coinImg()}` },
   { id: 'heaviest', name: 'Plus grosse prise', val: (p) => p.heaviest?.kg || 0, fmt: (p) => (p.heaviest?.kg ? `${fmtKg(p.heaviest.kg)} · ${escapeHtml(p.heaviest.fish)}` : '—') },
@@ -3350,10 +3384,12 @@ const LB_CATS = [
   { id: 'boat',     name: 'Bateau',           val: (p) => p.boat,             fmt: (p) => `${BOATS[p.boat - 1]?.name || '?'} (niv. ${fmtNum(p.boat)})` },
   { id: 'cthulhu',  name: 'Grand Ancien',     val: (p) => p.cthulhu,          fmt: (p) => `${fmtNum(p.cthulhu)} fois` },
 ];
-let lbData = null;
+const lbData = {};                        // par catégorie : { at, updated, total, players }
 let lbCat = 'earned';
 let lbStatus = '';
-const LB_MAX_BYTES = 2 * 1024 * 1024;     // un classement de 500 joueurs pèse ~150 Ko
+let lbHint = '';                          // message d'envoi (prioritaire sur la consigne par défaut)
+let lbBusy = false;
+const LB_MAX_BYTES = 256 * 1024;          // 50 joueurs pèsent ~10 Ko
 
 // Le classement téléchargé est une donnée réseau non fiable : chaque joueur est reconstruit
 // champ par champ (textes coupés, nombres finis et bornés), le reste est ignoré.
@@ -3362,9 +3398,10 @@ function validBoard(b) {
   const str = (x, max) => (typeof x === 'string' ? x.slice(0, max) : '');
   const board = vObj(b);
   return {
-    updated: str(board.updated, 40) || null,
-    players: vArr(board.players).slice(0, 500).filter(isObj).map((p) => ({
-      login: str(p.login, 39), name: str(p.name, 16),
+    updated: vInt(board.updated, 1e14) || null,
+    total: vInt(board.total, 1e9),
+    players: vArr(board.players).slice(0, 100).filter(isObj).map((p) => ({
+      name: str(p.name, 16),
       earned: n(p.earned, 1e12), caught: n(p.caught, 1e9), aboms: n(p.aboms, 1e9), dex: n(p.dex, 1000),
       days: n(p.days, 1e7), boat: Math.round(n(p.boat, BOAT_MAX)), cthulhu: n(p.cthulhu, 1e7), playTime: n(p.playTime, 1e10),
       heaviest: isObj(p.heaviest) ? { kg: n(p.heaviest.kg, 40000), fish: str(p.heaviest.fish, 40) } : null,
@@ -3372,115 +3409,84 @@ function validBoard(b) {
   };
 }
 
-// Hachage cyrb53 : identique à celui de scripts/leaderboard.mjs (signature du score)
-function cyrb53(str, seed = 0) {
-  let h1 = 0xdeadbeef ^ seed, h2 = 0x41c6ce57 ^ seed;
-  for (let i = 0; i < str.length; i++) {
-    const ch = str.charCodeAt(i);
-    h1 = Math.imul(h1 ^ ch, 2654435761);
-    h2 = Math.imul(h2 ^ ch, 1597334677);
-  }
-  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
-  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
-  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16).padStart(14, '0');
-}
-
-function scorePayload() {
-  const st = progress.stats;
-  const best = st.best ? creature(st.best.id) : null;
-  const s = {
-    v: 1,
-    version: GAME_VERSION,
-    name: (progress.look?.name || 'Anonyme').normalize('NFC'),
-    earned: Math.round(st.earned),
-    caught: st.caught,
-    casts: st.casts,
-    aboms: st.aboms,
-    heaviestKg: st.best ? st.best.weight : 0,
-    heaviestFish: best ? fishName(best, st.best.abom) : '',
-    dex: Object.keys(progress.dex).length,
-    days: dayOf(progress.clock),
-    boat: boatLevel(),
-    cthulhu: st.cthulhu || 0,
-    playTime: Math.round(st.playTime),
-  };
-  s.sig = cyrb53(`${LEADERBOARD.salt}|${LB_FIELDS.map((k) => `${k}=${s[k]}`).join('&')}`);
-  return s;
-}
-
-async function loadLeaderboard() {
-  lbStatus = 'Chargement du classement…';
+async function loadLeaderboard(force = false) {
+  const cat = lbCat;
+  if (!cloudOn()) { lbStatus = 'Classement indisponible.'; renderLeaderboard(); return; }
+  if (!force && lbData[cat] && Date.now() - lbData[cat].at < LB_CACHE_MS) { lbStatus = ''; renderLeaderboard(); return; }
+  lbStatus = lbData[cat] ? '' : 'Chargement du classement…';
   renderLeaderboard();
   try {
-    const url = `https://raw.githubusercontent.com/${LEADERBOARD.repo}/${LEADERBOARD.branch}/leaderboard.json?t=${Date.now()}`;
-    const res = await fetch(url, { cache: 'no-store' });
+    const res = await fetch(`${CLOUD_SAVE.url}/v1/leaderboard?cat=${encodeURIComponent(cat)}`, {
+      cache: 'no-store', credentials: 'omit', referrerPolicy: 'no-referrer', redirect: 'error',
+      signal: AbortSignal.timeout(10000),
+    });
     if (!res.ok) throw new Error(res.status);
     const text = await res.text();
     if (text.length > LB_MAX_BYTES) throw new Error('classement trop volumineux');
-    lbData = validBoard(JSON.parse(text));
-    lbStatus = '';
+    lbData[cat] = { ...validBoard(JSON.parse(text)), at: Date.now() };
+    if (cat === lbCat) lbStatus = '';
   } catch {
-    lbStatus = "Impossible de charger le classement (pas de connexion, ou dépôt pas encore public).";
+    if (cat === lbCat && !lbData[cat]) lbStatus = 'Impossible de charger le classement (pas de connexion ?).';
   }
-  if (openPanelName === 'leaderboard') renderLeaderboard();
+  if (openPanelName === 'leaderboard' && cat === lbCat) renderLeaderboard();
 }
 
 function renderLeaderboard() {
   $('lb-tabs').innerHTML = LB_CATS.map((c) => `<button class="btn tab-lb ${c.id === lbCat ? 'active' : ''}" data-lb="${c.id}">${c.name}</button>`).join('');
   const cat = LB_CATS.find((c) => c.id === lbCat);
-  const me = progress.look?.name;
-  const players = (lbData?.players || []).filter((p) => cat.val(p) > 0).sort((a, b) => cat.val(b) - cat.val(a)).slice(0, 50);
+  const me = normName(progress.look?.name);
+  const data = lbData[lbCat];
+  const players = (data?.players || []).filter((p) => cat.val(p) > 0).sort((a, b) => cat.val(b) - cat.val(a)).slice(0, 50);
   $('lb-list').innerHTML = lbStatus ? `<p class="lb-empty">${escapeHtml(lbStatus)}</p>`
     : players.length ? players.map((p, i) => `
-      <div class="lb-row ${inGame && p.name === me ? 'me' : ''} ${i < 3 ? `top${i + 1}` : ''}">
+      <div class="lb-row ${inGame && normName(p.name) === me ? 'me' : ''} ${i < 3 ? `top${i + 1}` : ''}">
         <span class="lb-rank">${i + 1}</span>
-        <span class="lb-name">${escapeHtml(p.name)}<small>@${escapeHtml(p.login)}</small></span>
+        <span class="lb-name">${escapeHtml(p.name)}</span>
         <span class="lb-val">${cat.fmt(p)}</span>
       </div>`).join('')
     : '<p class="lb-empty">Personne au classement pour le moment. Soyez le premier !</p>';
-  $('lb-updated').textContent = lbData?.updated ? `Mis à jour le ${new Date(lbData.updated).toLocaleString('fr-FR')}` : '';
+  $('lb-updated').textContent = data?.updated
+    ? `${fmtNum(data.total)} joueur${data.total > 1 ? 's' : ''} · mis à jour le ${fmtWhen(data.updated)}` : '';
+  const ranked = !!cloud.link?.ranked;
   const btn = $('lb-submit');
-  btn.disabled = !inGame || admin.on;
-  if ($('lb-hint').querySelector('.lb-go')) return;          // ne pas effacer le lien d'envoi déjà préparé
-  $('lb-hint').textContent = !inGame ? 'Lancez une partie pour envoyer votre score.'
+  btn.disabled = !inGame || admin.on || lbBusy || !cloudOn();
+  btn.textContent = ranked ? 'Mettre à jour mon score' : 'Envoyer mon score';
+  $('lb-hint').textContent = lbHint || (!inGame ? 'Lancez une partie pour envoyer votre score.'
     : admin.on ? 'Les scores ne peuvent pas être envoyés en mode admin.'
-    : 'L\'envoi ouvre une page GitHub pré-remplie : il suffit de cliquer sur « Submit new issue » (un compte GitHub est nécessaire).';
+    : ranked ? 'Vous êtes au classement : votre score se met à jour tout seul à chaque sauvegarde en ligne.'
+    : 'Votre score est calculé à partir de votre sauvegarde en ligne (activée au besoin), puis mis à jour à chaque sauvegarde.');
 }
 
-function submitScore() {
-  if (!inGame || admin.on) return;
-  const s = scorePayload();
-  if (!LB_NAME_RE.test(s.name)) {
-    $('lb-hint').textContent = "Votre nom contient des caractères refusés par le classement (autorisés : lettres, chiffres, espace, ' . _ -) : le score ne peut pas être envoyé.";
+async function submitScore() {
+  if (!inGame || admin.on || lbBusy || !cloudOn()) return;
+  const name = (progress.look?.name || '').normalize('NFC');
+  if (!LB_NAME_RE.test(name)) {
+    lbHint = "Votre nom contient des caractères refusés par le classement (autorisés : lettres, chiffres, espace, ' . _ -) : le score ne peut pas être envoyé.";
+    renderLeaderboard();
     return;
   }
-  writeSave();
-  const body = [
-    `Score de **${s.name}** envoyé depuis Lac Tranquille ${GAME_VERSION}.`,
-    '',
-    `- Pièces gagnées : ${s.earned} · Prises : ${s.caught} · Abominations : ${s.aboms}`,
-    `- Carnet : ${s.dex} · Jours : ${s.days} · Bateau : ${s.boat} · Grand Ancien : ${s.cthulhu}`,
-    '',
-    'Ne modifiez pas le bloc ci-dessous, il est vérifié automatiquement :',
-    '',
-    '```json',
-    JSON.stringify(s),
-    '```',
-  ].join('\n');
-  const url = `https://github.com/${LEADERBOARD.repo}/issues/new?title=${encodeURIComponent(`[Score] ${s.name}`)}&body=${encodeURIComponent(body)}`;
-  // Un vrai lien cliqué par le joueur, plutôt que window.open() : un lien n'est jamais bloqué comme
-  // une fenêtre surgissante, et window.open(…, 'noopener') renvoie toujours null (blocage indétectable).
-  const hint = $('lb-hint');
-  hint.textContent = '';
-  const a = document.createElement('a');
-  a.href = url;
-  a.target = '_blank';
-  a.rel = 'noopener noreferrer';
-  a.className = 'btn lb-go';
-  a.textContent = 'Ouvrir GitHub pour envoyer mon score ›';
-  hint.append('Score prêt ! ', a, ' Puis, sur GitHub : connectez-vous, cliquez sur « Create » (ou « Submit new issue ») et revenez dans quelques minutes.');
-  a.addEventListener('click', () => { Sound.click(); });
-  a.focus();
+  Sound.click();
+  lbBusy = true;
+  lbHint = 'Envoi du score…';
+  renderLeaderboard();
+  try {
+    // 1. sauvegarde en ligne (le score en est tiré par le serveur)
+    if (!cloud.link && !(await cloudEnable())) { lbHint = cloud.msg || 'Sauvegarde en ligne impossible.'; return; }
+    writeSave(true);
+    await cloudPush({ silent: true });             // « trop_tot » : la version en ligne date de moins de 20 s
+    if (cloud.conflict) { lbHint = 'Une version plus avancée de votre partie existe en ligne : choisissez laquelle garder dans Options › Sauvegarde en ligne.'; return; }
+    // 2. inscription / mise à jour au classement
+    const r = await cloudCall('/v1/score', { name: cloud.link.name, key: cloud.link.key, fish: bestFishName(progress) });
+    cloudSetLink({ ...cloud.link, ranked: true });
+    lbHint = `Score enregistré ! Rang ${fmtNum(vInt(r.rank, 1e9))} sur ${fmtNum(vInt(r.total, 1e9))} (pièces gagnées). Il se mettra à jour tout seul à chaque sauvegarde.`;
+    Sound.chestGet();
+    loadLeaderboard(true);
+  } catch (e) {
+    lbHint = e.message || 'Envoi impossible.';
+  } finally {
+    lbBusy = false;
+    renderLeaderboard();
+  }
 }
 
 $('lb-tabs').addEventListener('click', (e) => {
@@ -3488,9 +3494,9 @@ $('lb-tabs').addEventListener('click', (e) => {
   if (!b) return;
   lbCat = b.dataset.lb;
   Sound.click();
-  renderLeaderboard();
+  loadLeaderboard();
 });
-$('lb-refresh').addEventListener('click', () => { Sound.click(); loadLeaderboard(); });
+$('lb-refresh').addEventListener('click', () => { Sound.click(); loadLeaderboard(true); });
 $('lb-submit').addEventListener('click', submitScore);
 
 $('btn-menu').addEventListener('click', (e) => {
@@ -3983,6 +3989,35 @@ function drawCine(dt) {
     ctx.drawImage(villageArt, 0, 0);
     ctx.fillStyle = 'rgba(255, 140, 70, 0.18)';                            // lumière de fin d'après-midi
     ctx.fillRect(0, 0, LW, LH);
+  } else if (sc === 'pier') {
+    // gros plan (×2) sur le ponton du village (x 224-256, y 214-270), cadré en haut de l'écran pour
+    // rester au-dessus de la narration : Papi Émile assis au bout, qui fait signe ; à la première
+    // scène, le personnage descend le ponton pour le rejoindre. Tout est dessiné sur une petite toile
+    // à l'échelle du village, puis agrandi sans lissage.
+    const SX = 112, SY = 185, SW = LW / 2, SH = LH / 2;
+    const zc = (cine.art.pierCv ||= makeCanvas(SW, SH)).getContext('2d');
+    zc.fillStyle = VPAL.waterD;
+    zc.fillRect(0, 0, SW, SH);
+    zc.drawImage(villageArt, -SX, -SY);
+    for (let k = 0; k < 6; k++) {                                         // vaguelettes sous le ponton
+      const wx = (k * 47 + Math.floor(t * 6)) % SW, wy = 90 + ((k * 23) % 40);
+      pxRect(zc, wx, wy, 4, 1, VPAL.waterL);
+    }
+    cine.art.papi ||= buildFisherSprite({ ...GRANDPA.look, gear: 'off' });
+    const wave = Math.sin(t * 7) > 0.5 ? -1 : 0;
+    zc.drawImage(cine.art.papi, 225 - SX, 244 - SY + wave);
+    const first = INTRO_SCENES[cine.i - 1]?.scene !== 'pier';
+    const y = first ? Math.round(lerp(196, 226, clamp(t / 2.4, 0, 1))) : 226;
+    zc.drawImage(buildFisherSpriteCached(), 237 - SX, y - SY + (first && t < 2.4 ? (Math.floor(t * 6) % 2) : 0));
+    if (wave && Math.sin(t * 1.3) > 0) {                                  // petite bulle « ! » au-dessus de grand-père
+      pxRect(zc, 229 - SX, 233 - SY, 7, 9, '#f4f0e6');
+      pxRect(zc, 232 - SX, 235 - SY, 1, 4, '#2a2230');
+      pxRect(zc, 232 - SX, 240 - SY, 1, 1, '#2a2230');
+    }
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(cine.art.pierCv, 0, 0, LW, LH);
+    ctx.fillStyle = 'rgba(255, 140, 70, 0.18)';                            // lumière de fin d'après-midi
+    ctx.fillRect(0, 0, LW, LH);
   } else {
     renderScene();                                                       // le lac, avec la barque
     if (sc === 'eerie') {
@@ -4008,6 +4043,175 @@ function drawCine(dt) {
 }
 let fisherSpriteCache = null;
 const buildFisherSpriteCached = () => (fisherSpriteCache ||= buildFisherSprite({ ...validLook(progress.look), gear: 'off' }));
+
+// ---------------------------------------------------------------------------
+// Tutoriels (textes : TUTO_FISH, TUTO_RETRY, TUTO_SAVE dans village.js)
+//  - pêche : Papi Émile guide une pêche d'entraînement (poisson facile, morsure rapide) ;
+//    l'étape avance quand l'état de la pêche change (ligne lancée, morsure, ferrage, prise) ;
+//  - sauvegarde : une flèche montre les boutons à utiliser, panneau des options compris.
+// ---------------------------------------------------------------------------
+const tuto = { kind: null, i: 0, fishing: false, retry: '', prevState: '', then: null, typer: null, focus: null };
+
+const tutoWords = (txt) => fillText(txt)
+  .replaceAll('{clic}', TOUCH ? 'touche' : 'clique').replaceAll('{Clic}', TOUCH ? 'Touche' : 'Clique')
+  .replaceAll('{maintiens}', TOUCH ? 'garde le doigt appuyé' : 'maintiens le clic (ou Espace)')
+  .replaceAll('{Maintiens}', TOUCH ? 'Garde le doigt appuyé' : 'Maintiens le clic (ou Espace)');
+
+// Au démarrage d'une partie : la pêche d'entraînement si elle n'a pas été faite, puis la sauvegarde
+function tutoMaybeStart() {
+  if (tuto.kind || !inGame) return;
+  if (!progress.tuto.fish) startTuto('fish', () => startTutoWhenFree('save'));
+  else if (!progress.tuto.save) setTimeout(() => startTutoWhenFree('save'), 1500);
+}
+// L'astuce attend que le joueur soit libre : carte de prise fermée, aucun panneau ouvert
+function startTutoWhenFree(kind) {
+  if (!inGame || tuto.kind) return;
+  if (game.state === 'caught' || openPanelName || cine.on) { setTimeout(() => startTutoWhenFree(kind), 400); return; }
+  startTuto(kind);
+}
+
+function startTuto(kind, then = null) {
+  tuto.kind = kind;
+  tuto.i = 0;
+  tuto.retry = '';
+  tuto.then = then;
+  tuto.prevState = game.state;
+  tuto.fishing = kind === 'fish';
+  tuto.typer ||= makeTyper($('tuto-text'), 45);
+  const papi = kind === 'fish';
+  $('tuto-face').src = papi ? npcPortrait(GRANDPA) : ICONS.save;
+  $('tuto-who').textContent = papi ? GRANDPA.name : 'Astuce';
+  $('tuto-skip').textContent = papi ? 'Passer l\'entraînement' : 'Passer';
+  $('tuto').hidden = false;
+  showTutoStep();
+}
+
+function tutoSteps() { return tuto.kind === 'fish' ? TUTO_FISH : TUTO_SAVE; }
+
+function showTutoStep() {
+  const steps = tutoSteps();
+  const st = steps[tuto.i];
+  tuto.typer.set(tutoWords(tuto.retry || st.text));
+  $('tuto-step').textContent = `${tuto.i + 1} / ${steps.length}`;
+  // bouton Suivant : étapes à lire (sauvegarde, fin de la pêche) ; sinon on attend une action de pêche
+  const manual = tuto.kind === 'save' || st.until === 'next';
+  $('tuto-next').hidden = !manual;
+  $('tuto-next').textContent = tuto.i === steps.length - 1 ? 'Terminer' : 'Suivant ›';
+  tutoFocus(tuto.kind === 'save' ? st : null);
+}
+
+function tutoNext() {
+  if (!tuto.kind) return;
+  if (!tuto.typer.done()) { tuto.typer.full(); return; }
+  const steps = tutoSteps();
+  tuto.retry = '';
+  if (++tuto.i >= steps.length) { endTuto(true); return; }
+  Sound.page();
+  showTutoStep();
+}
+
+function endTuto(done) {
+  const kind = tuto.kind;
+  if (!kind) return;
+  tutoFocus(null);
+  if (tuto.kind === 'save' && openPanelName === 'options' && tutoSteps().some((s) => s.panel === 'options')) closePanel();
+  tuto.kind = null;
+  tuto.fishing = false;
+  $('tuto').hidden = true;
+  // « Passer » compte comme terminé : on ne le reproposera pas (rejouable depuis les options)
+  progress.tuto[kind] = true;
+  if (done !== undefined) writeSave();
+  const then = tuto.then;
+  tuto.then = null;
+  if (done) Sound.achievement();
+  then?.();
+}
+
+// Retour au menu en plein tutoriel : on le range sans le marquer comme fait (il reprendra)
+function tutoAbort() {
+  if (!tuto.kind) return;
+  tutoFocus(null);
+  tuto.kind = null;
+  tuto.fishing = false;
+  tuto.then = null;
+  $('tuto').hidden = true;
+}
+
+// Mise en valeur de l'élément visé (contour qui pulse) + flèche qui le montre
+function tutoFocus(st) {
+  tuto.focus?.classList.remove('tuto-focus');
+  tuto.focus = null;
+  $('tuto-arrow').hidden = true;
+  if (!st?.target) return;
+  if (st.panel && openPanelName !== st.panel) openPanel(st.panel);
+  const el = $(st.target);
+  if (!el || el.hidden) return;
+  el.scrollIntoView?.({ block: 'center' });
+  el.classList.add('tuto-focus');
+  tuto.focus = el;
+  tutoPlaceArrow();
+  requestAnimationFrame(tutoPlaceArrow);         // après le défilement du panneau
+}
+function tutoPlaceArrow() {
+  const el = tuto.focus;
+  if (!el) return;
+  const g = $('game').getBoundingClientRect();
+  const r = el.getBoundingClientRect();
+  const a = $('tuto-arrow');
+  a.hidden = false;
+  const fs = parseFloat(getComputedStyle($('game')).fontSize) || 16;
+  const below = r.bottom + fs * 2.2 < g.bottom;      // flèche sous l'élément (pointe vers le haut), sinon au-dessus
+  a.classList.toggle('down', !below);
+  a.style.left = `${r.left - g.left + r.width / 2 - fs * 0.9}px`;
+  a.style.top = below ? `${r.bottom - g.top + fs * 0.3}px` : `${r.top - g.top - fs * 1.6}px`;
+}
+window.addEventListener('resize', () => { if (tuto.focus) tutoPlaceArrow(); });
+document.addEventListener('scroll', () => { if (tuto.focus) tutoPlaceArrow(); }, true);   // panneau qui défile
+
+// Pêche d'entraînement : suit les changements d'état de la pêche (appelé à chaque image en partie)
+function tutoTick() {
+  if (tuto.kind !== 'fish') return;
+  const s = game.state;
+  const prev = tuto.prevState;
+  if (s === prev) return;
+  tuto.prevState = s;
+  const st = TUTO_FISH[tuto.i];
+  const castIdx = TUTO_FISH.findIndex((x) => x.until === 'cast');
+  const retry = (txt) => { tuto.i = castIdx; tuto.retry = txt; showTutoStep(); };
+  if (s === 'early') return retry(TUTO_RETRY.early);
+  if (s === 'missed') return retry(prev === 'bite' ? TUTO_RETRY.late : TUTO_RETRY.escaped);
+  const reached = { cast: s === 'waiting', bite: s === 'bite', hook: s === 'reeling', landed: s === 'caught' }[st.until];
+  if (reached) {
+    tuto.retry = '';
+    tuto.i++;
+    showTutoStep();
+  } else if (tuto.retry && s === 'waiting' && st.until === 'cast') {
+    tuto.retry = '';                          // relancé après un raté : la suite reprend normalement
+    tuto.i++;
+    showTutoStep();
+  }
+}
+
+// le texte s'écrit lettre par lettre, même panneau ouvert (la boucle de jeu est alors en pause)
+let tutoLast = 0;
+function tutoFrame(now) {
+  const dt = Math.min(0.1, (now - tutoLast) / 1000 || 0);
+  tutoLast = now;
+  if (tuto.kind) tuto.typer.update(dt);
+  requestAnimationFrame(tutoFrame);
+}
+requestAnimationFrame(tutoFrame);
+
+$('tuto-next').addEventListener('click', (e) => { e.currentTarget.blur(); Sound.click(); tutoNext(); });
+$('tuto-skip').addEventListener('click', (e) => { e.currentTarget.blur(); Sound.click(); endTuto(false); });
+$('tuto-text').addEventListener('click', () => { if (tuto.kind && !tuto.typer.done()) tuto.typer.full(); });
+$('opt-tuto').addEventListener('click', () => {
+  if (!inGame) return;
+  closePanel();
+  endTuto();
+  // pêche seulement si la ligne est libre ; sinon, directement la sauvegarde
+  if (game.state === 'idle') startTuto('fish', () => startTutoWhenFree('save')); else startTuto('save');
+});
 
 $('opt-intro').addEventListener('click', () => {
   const wasInGame = inGame;
@@ -4039,7 +4243,7 @@ function openPanel(name) {
   if (name === 'pot') renderPotRecap();
   if (name === 'achievements') renderAchievements();
   if (name === 'char') renderCharEditor();
-  if (name === 'leaderboard') { $('lb-hint').textContent = ''; renderLeaderboard(); loadLeaderboard(); }
+  if (name === 'leaderboard') { lbHint = ''; loadLeaderboard(); }
   if (name === 'curses') { witchLine = WITCH.greet[Math.floor(Math.random() * WITCH.greet.length)]; renderCurses(); }
   if (name === 'village') renderVillage();
   if (name === 'bank') { $('bank-npc').innerHTML = npcBar('bank'); $('bank-msg').textContent = ''; renderBank(); }
@@ -5147,11 +5351,13 @@ let pendingLink = null;                            // lien à enregistrer si le 
 // https obligatoire, sauf serveur local de développement (wrangler dev)
 const cloudOn = () => /^(https:\/\/[a-z0-9.-]+|http:\/\/(localhost|127\.0\.0\.1))(:\d+)?$/i.test(CLOUD_SAVE.url);
 const cloudMsg = (txt) => { cloud.msg = txt; $('cloud-msg').textContent = txt; };
+// Normalisation du pseudo : NFC + trim + toLocaleLowerCase('fr'). Identique à validName() et
+// lookNameId() de server/cloud-save/worker.js : toute modification doit être reportée aux trois endroits.
 const normName = (n) => String(n || '').normalize('NFC').trim().toLocaleLowerCase('fr');
 
 function validLink(x) {
   if (!isObj(x) || typeof x.name !== 'string' || !LB_NAME_RE.test(x.name) || !CLOUD_KEY_RE.test(x.key)) return null;
-  return { name: x.name, key: x.key, rev: vInt(x.rev, Number.MAX_SAFE_INTEGER), at: vInt(x.at, 1e14) };
+  return { name: x.name, key: x.key, rev: vInt(x.rev, Number.MAX_SAFE_INTEGER), at: vInt(x.at, 1e14), ranked: x.ranked === true };
 }
 function cloudReadLink() {
   try { cloud.link = validLink(JSON.parse(localStorage.getItem(CLOUD_LINK_KEY))); } catch { cloud.link = null; }
@@ -5214,23 +5420,40 @@ async function cloudCall(path, body) {
 const cloudCurrent = () => (inGame ? progress : loadSave());
 const fmtWhen = (t) => (t ? new Date(t).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : '?');
 
+// Nom affiché de la plus grosse prise (envoyé avec la sauvegarde, pour le classement)
+function bestFishName(p) {
+  const b = p?.stats?.best;
+  const c = b ? creature(b.id) : null;
+  return c ? fishName(c, b.abom).slice(0, 40) : '';
+}
+
+// Résultat dans cloud.lastCode : 'ok', 'trop_tot' (envoyé il y a moins de 20 s), 'conflit', ou un code d'erreur
 async function cloudPush({ silent = false, force = false, retried = false } = {}) {
-  if (!cloudOn() || !cloud.link || cloud.busy) return false;
+  cloud.lastCode = 'off';
+  if (!cloudOn() || !cloud.link) return false;
+  if (cloud.busy) { cloud.lastCode = 'occupe'; return false; }
   const cur = cloudCurrent();
   if (!cur?.look?.name) return false;
   // garde-fou : jamais d'envoi d'une partie d'un autre personnage sur ce pseudo
   if (normName(cur.look.name) !== normName(cloud.link.name)) { cloudUnlink(); renderCloud(); return false; }
-  if (cloud.conflict && !force) return false;
+  if (cloud.conflict && !force) { cloud.lastCode = 'conflit'; return false; }
   cloud.busy = true;
   cloud.lastPush = Date.now();
   try {
-    const r = await cloudCall('/v1/save', { name: cloud.link.name, key: cloud.link.key, save: { ...cur, gv: GAME_VERSION }, baseRev: cloud.link.rev });
-    cloudSetLink({ ...cloud.link, rev: vInt(r.rev, Number.MAX_SAFE_INTEGER), at: vInt(r.updatedAt, 1e14) });
+    const r = await cloudCall('/v1/save', {
+      name: cloud.link.name, key: cloud.link.key, save: { ...cur, gv: GAME_VERSION }, baseRev: cloud.link.rev, fish: bestFishName(cur),
+    });
+    cloudSetLink({ ...cloud.link, rev: vInt(r.rev, Number.MAX_SAFE_INTEGER), at: vInt(r.updatedAt, 1e14), ranked: r.ranked === true || cloud.link.ranked });
+    cloud.lastCode = 'ok';
     if (!silent) cloudMsg('Partie envoyée en ligne.');
     return true;
   } catch (e) {
-    if (e.code === 'conflit' && !retried) await cloudResolveConflict(cur);
-    else if (!silent || e.code !== 'trop_tot') cloudMsg(e.message);
+    cloud.lastCode = e.code || 'erreur';
+    if (e.code === 'conflit' && !retried) {
+      await cloudResolveConflict(cur);
+      return cloud.lastCode === 'ok';
+    }
+    if (!silent || e.code !== 'trop_tot') cloudMsg(e.message);
     return false;
   } finally {
     cloud.busy = false;
@@ -5253,8 +5476,9 @@ async function cloudResolveConflict(cur) {
       return;
     }
     cloud.conflict = online ? { save: online, rev, at: vInt(r.updatedAt, 1e14) } : null;
+    cloud.lastCode = 'conflit';
     cloudMsg(online ? '' : 'Sauvegarde en ligne illisible.');
-  } catch (e) { cloudMsg(e.message); }
+  } catch (e) { cloud.lastCode = e.code || 'erreur'; cloudMsg(e.message); }
 }
 
 // Envoi automatique, au plus toutes les CLOUD_AUTO_MS (appelé par writeSave en partie)
@@ -5286,29 +5510,77 @@ function renderCloud() {
   $('cloud-msg').textContent = cloud.msg;
 }
 
-$('cloud-enable').addEventListener('click', async () => {
+// Activation : génère la clé et réserve le pseudo du personnage. Renvoie true si c'est fait.
+async function cloudEnable({ auto = false } = {}) {
   const cur = cloudCurrent();
-  if (!cur?.look?.name || cloud.busy) return;
-  Sound.click();
+  if (!cloudOn() || cloud.link || !cur?.look?.name || cloud.busy) return false;
   const link = { name: cur.look.name, key: newCloudKey(), rev: 0, at: 0 };
   cloud.busy = true;
   cloudMsg('Création de votre sauvegarde en ligne…');
   try {
-    const r = await cloudCall('/v1/save', { name: link.name, key: link.key, save: { ...cur, gv: GAME_VERSION }, baseRev: 0 });
+    const r = await cloudCall('/v1/save', { name: link.name, key: link.key, save: { ...cur, gv: GAME_VERSION }, baseRev: 0, fish: bestFishName(cur) });
     cloudSetLink({ ...link, rev: vInt(r.rev, Number.MAX_SAFE_INTEGER), at: vInt(r.updatedAt, 1e14) });
     cloud.lastPush = Date.now();
+    cloud.lastCode = 'ok';
     cloud.showKey = true;
+    try { localStorage.removeItem(CLOUD_AUTO_KEY); } catch { /* stockage indisponible */ }
     cloudMsg('Sauvegarde en ligne activée ! Notez votre clé : elle ne pourra pas être retrouvée si vous la perdez.');
-    Sound.chestGet();
+    // la clé reste consultable dans Options › Sauvegarde en ligne (« Afficher ma clé »)
+    pushToast({ icon: ICONS.save, label: 'Sauvegarde en ligne activée', title: escapeHtml(link.key),
+      sub: 'Votre clé personnelle : notez-la (Options › Sauvegarde en ligne).', sound: () => Sound.chestGet() });
+    return true;
   } catch (e) {
-    cloudMsg(e.code === 'pseudo_pris'
-      ? `Le pseudo « ${link.name} » a déjà une sauvegarde en ligne. Si c'est la vôtre, utilisez « Reprendre une partie en ligne » avec votre clé.`
-      : e.message);
+    cloud.lastCode = e.code || 'erreur';
+    if (e.code === 'pseudo_pris') {
+      try { localStorage.setItem(CLOUD_AUTO_KEY, `pris:${normName(link.name)}`); } catch { /* idem */ }
+      cloudMsg(`Le pseudo « ${link.name} » a déjà une sauvegarde en ligne. Si c'est la vôtre, utilisez « Reprendre une partie en ligne » avec votre clé.`);
+      if (auto) {
+        pushToast({ icon: ICONS.save, label: 'Sauvegarde en ligne', title: 'Pseudo déjà enregistré',
+          sub: 'Si c\'est votre partie, reprenez-la dans Options › Sauvegarde en ligne.' });
+      }
+    } else cloudMsg(e.message);
+    return false;
   } finally {
     cloud.busy = false;
     renderCloud();
   }
-});
+}
+
+// Activée par défaut : à l'entrée en partie, si l'appareil n'est pas lié, que le joueur ne l'a pas
+// délié lui-même et que ce pseudo n'a pas déjà été trouvé pris
+async function cloudAutoEnable() {
+  if (!cloudOn() || cloud.link || !inGame || !progress.look?.name) return;
+  let pref = null;
+  try { pref = localStorage.getItem(CLOUD_AUTO_KEY); } catch { /* stockage indisponible */ }
+  if (pref === 'off' || pref === `pris:${normName(progress.look.name)}`) return;
+  await cloudEnable({ auto: true });
+}
+
+$('cloud-enable').addEventListener('click', () => { Sound.click(); cloudEnable(); });
+
+// Bouton « Sauver » de la barre d'icônes (raccourci S) : sauvegarde locale, puis envoi en ligne
+let saveBusy = false;
+async function saveNow() {
+  if (!inGame || saveBusy) return;
+  saveBusy = true;
+  $('btn-save').disabled = true;
+  Sound.click();
+  writeSave(true);
+  let sub = 'Dans ce navigateur.';
+  if (cloudOn() && cloud.link) {
+    const ok = await cloudPush({ silent: true });
+    sub = ok ? 'Dans ce navigateur et en ligne.'
+      : cloud.lastCode === 'trop_tot' ? 'Dans ce navigateur (en ligne : déjà à jour il y a quelques secondes).'
+      : cloud.lastCode === 'conflit' ? 'Dans ce navigateur. En ligne : une version plus avancée existe (voir Options).'
+      : `Dans ce navigateur. En ligne : échec (${cloud.msg || 'serveur injoignable'}).`;
+  } else if (cloudOn()) {
+    sub = 'Dans ce navigateur. Activez la sauvegarde en ligne dans les options pour la retrouver partout.';
+  }
+  pushToast({ icon: ICONS.save, label: 'Sauvegarde', title: 'Partie sauvegardée', sub: escapeHtml(sub) });
+  saveBusy = false;
+  $('btn-save').disabled = false;
+}
+$('btn-save').addEventListener('click', (e) => { e.currentTarget.blur(); saveNow(); });
 
 $('cloud-push').addEventListener('click', () => { Sound.click(); if (inGame) writeSave(); cloudPush(); });
 
@@ -5338,6 +5610,8 @@ $('cloud-unlink').addEventListener('click', () => {
   confirmUnlink = false;
   $('cloud-unlink').textContent = 'Délier cet appareil';
   cloudUnlink();
+  // choix du joueur : plus d'activation automatique sur cet appareil (réactivable à la main)
+  try { localStorage.setItem(CLOUD_AUTO_KEY, 'off'); } catch { /* stockage indisponible */ }
   cloudMsg('Appareil délié. La sauvegarde en ligne est conservée.');
   renderCloud();
 });
@@ -5661,6 +5935,7 @@ window.addEventListener('keydown', (e) => {
     if (openPanelName === npcKey[1]) closePanel(); else openNpc(npcKey[0]);
     return;
   }
+  if (e.code === 'KeyS' && !e.repeat && !e.ctrlKey && !e.metaKey) { saveNow(); return; }
   const target = { KeyC: 'book', KeyP: 'sheet', KeyK: 'crates', KeyT: 'achievements', KeyV: 'village' }[e.code];
   if (target) {
     if (openPanelName === target) closePanel();

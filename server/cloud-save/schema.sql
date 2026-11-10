@@ -10,3 +10,29 @@ CREATE TABLE IF NOT EXISTS saves (
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
+
+-- Classement : une ligne par pseudo inscrit (bouton « Envoyer mon score » du jeu).
+-- Les valeurs sont calculées par le serveur à partir de la sauvegarde en ligne, puis mises à jour
+-- à chaque envoi de sauvegarde. On garde le meilleur de chaque catégorie.
+CREATE TABLE IF NOT EXISTS scores (
+  name          TEXT    PRIMARY KEY,       -- même clé que saves.name
+  display       TEXT    NOT NULL,
+  earned        INTEGER NOT NULL DEFAULT 0,
+  caught        INTEGER NOT NULL DEFAULT 0,
+  aboms         INTEGER NOT NULL DEFAULT 0,
+  dex           INTEGER NOT NULL DEFAULT 0,
+  days          INTEGER NOT NULL DEFAULT 0,
+  boat          INTEGER NOT NULL DEFAULT 1,
+  cthulhu       INTEGER NOT NULL DEFAULT 0,
+  play_time     INTEGER NOT NULL DEFAULT 0,
+  heaviest_kg   REAL    NOT NULL DEFAULT 0,
+  heaviest_fish TEXT    NOT NULL DEFAULT '',
+  version       TEXT,
+  updated_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS scores_earned   ON scores (earned DESC);
+CREATE INDEX IF NOT EXISTS scores_heaviest ON scores (heaviest_kg DESC);
+CREATE INDEX IF NOT EXISTS scores_dex      ON scores (dex DESC);
+CREATE INDEX IF NOT EXISTS scores_days     ON scores (days DESC);
+CREATE INDEX IF NOT EXISTS scores_boat     ON scores (boat DESC);
+CREATE INDEX IF NOT EXISTS scores_cthulhu  ON scores (cthulhu DESC);

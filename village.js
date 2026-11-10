@@ -131,8 +131,46 @@ const INTRO_SCENES = [
   { scene: 'office', text: 'Un lundi de pluie, entre deux réunions, {nom} a glissé une lettre de démission sous la porte du chef. Et n\'a pas attendu la réponse.' },
   { scene: 'road',   text: 'Direction le village natal, au bord du lac où grand-père lui avait appris à pêcher. Un endroit qu\'on n\'oublie pas.' },
   { scene: 'village', text: `${VILLAGE_NAME} n'a presque pas changé. La poissonnerie, la banque, le bric-à-brac… et la vieille barque, qui attend toujours au ponton.` },
+  { scene: 'pier',   text: "Au bout du ponton, une silhouette familière agite son vieux bob. « {nom} ! Je savais bien que tu finirais par revenir. »" },
+  { scene: 'pier',   text: "Papi Émile n'a pas changé : même chemise à carreaux, même sourire en coin. « Allez, monte dans la barque. On va voir si tu te souviens de ce que je t'ai appris. »" },
   { scene: 'eerie',  text: "Le Lac Tranquille. Aussi beau que dans ses souvenirs… Pourtant, l'eau semble plus sombre. Plus profonde. Comme si quelque chose, tout au fond, avait guetté son retour." },
   { scene: 'lake',   text: 'Fini les bureaux. À partir d\'aujourd\'hui, {nom} sera {pecheur}. Le lac, lui, a tout son temps.' },
+];
+
+// ===========================================================================
+// Tutoriels
+// ===========================================================================
+// Grand-père : il apprend à pêcher au joueur au début d'une nouvelle partie (portrait : character.js)
+const GRANDPA = {
+  id: 'papi', name: 'Papi Émile', role: 'Grand-père',
+  look: { sex: 'homme', skin: '#f2c497', hair: 'court', hairColor: '#e8e8e8', beard: 'barbe', hat: 'bob', hatColor: '#6a8a3a', shirtStyle: 'carreaux', shirt: '#a84a2a', pants: '#5a4a3a' },
+};
+
+// Pêche d'entraînement, étape par étape. until : ce qui fait passer à l'étape suivante
+//   'next' (bouton Suivant), 'cast' (ligne à l'eau), 'bite' (ça mord), 'hook' (poisson ferré),
+//   'landed' (poisson sorti de l'eau).
+// {nom} : nom du personnage ; {clic} / {Clic} : « clique » ou « touche » (écran tactile) ;
+// {maintiens} : « maintiens le clic » ou « garde le doigt appuyé ».
+const TUTO_FISH = [
+  { until: 'cast',   text: "Bon, on reprend depuis le début. Pour lancer ta ligne, {clic} n'importe où sur le lac." },
+  { until: 'bite',   text: "Joli lancer ! Maintenant, patience… Le bouchon va frétiller : ce n'est qu'une touche, on ne bouge pas." },
+  { until: 'hook',   text: "Il plonge ! {Clic} tout de suite pour ferrer !" },
+  { until: 'landed', text: "Il se débat ! {Maintiens} pour faire monter la barre verte, et garde le poisson dedans. Relâche pour qu'elle redescende." },
+  { until: 'next',   text: "Bravo, {nom} ! Ta première prise de l'année. Elle file dans ta bourriche : Gaston, le poissonnier du village, te la rachètera." },
+  { until: 'next',   text: "Le reste, les appâts, les caisses, le bateau, tu l'apprendras au fil des jours. Et méfie-toi du lac à la nuit tombée… On raconte des choses." },
+];
+// Ratés pendant l'entraînement : grand-père explique, puis on relance
+const TUTO_RETRY = {
+  early: "Trop tôt ! Une touche timide, ce n'est pas une morsure. Attends que le bouchon plonge vraiment. Relance ta ligne.",
+  late: "Trop tard, il a lâché l'appât ! Quand le bouchon plonge, {clic} sans attendre. Allez, relance.",
+  escaped: "Il s'est échappé… Pas grave, ça arrive aux meilleurs. Garde bien le poisson dans la barre verte. Relance ta ligne.",
+};
+// Sauvegarde : des flèches montrent où cliquer. target : id de l'élément visé ;
+// panel : panneau à ouvrir avant de montrer l'élément.
+const TUTO_SAVE = [
+  { target: 'btn-save', text: 'Ce bouton sauvegarde votre partie (raccourci : S). La partie part aussi en ligne, pour la retrouver sur un autre appareil.' },
+  { target: 'hud-options', text: 'La sauvegarde en ligne se règle dans les Options. Le jeu sauvegarde aussi tout seul, régulièrement.' },
+  { target: 'cloud-box', panel: 'options', text: 'Ici, « Afficher ma clé » donne votre clé personnelle. Avec votre pseudo, elle permet de reprendre votre partie sur n\'importe quel appareil : notez-la !' },
 ];
 
 // ===========================================================================

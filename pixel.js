@@ -1306,6 +1306,28 @@ const ICON_SPRITES = {
     ],
     pal: { o: '#1e140c', d: '#a8703c', D: '#7a4c24', y: '#f5d04a', g: '#8a8f96' },
   },
+  // disquette : bouton « Sauvegarder » de la barre d'icônes
+  save: {
+    rows: [
+      '................',
+      '.ooooooooooooo..',
+      '.obbmmmmmmmmbbo.',
+      '.obbmmmmmmmmbbbo',
+      '.obbmmmmMMmmbbbo',
+      '.obbmmmmMMmmbbbo',
+      '.obbmmmmmmmmbbbo',
+      '.obbbbbbbbbbbbbo',
+      '.obbbbbbbbbbbbbo',
+      '.obbwwwwwwwwwbbo',
+      '.obbwllllllllwbo',
+      '.obbwwwwwwwwwwbo',
+      '.obbwllllllllwbo',
+      '.obbwwwwwwwwwwbo',
+      '.oooooooooooooo.',
+      '................',
+    ],
+    pal: { o: '#0e1438', b: '#3f63c9', m: '#c8d0dc', M: '#4a4f5a', w: '#f2f0e6', l: '#9aa6c0' },
+  },
   coin: {
     rows: [
       '..oooo..',

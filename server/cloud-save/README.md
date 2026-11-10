@@ -1,8 +1,13 @@
-# Sauvegarde en ligne — déploiement
+# Sauvegarde en ligne et classement — déploiement
 
 Petit serveur (Cloudflare Worker + base D1) qui garde une sauvegarde par pseudo, protégée par
-une clé secrète générée par le jeu. Il tient dans l'offre gratuite de Cloudflare :
+une clé secrète générée par le jeu, et tient le classement. Le score n'est pas envoyé par le
+joueur : le serveur le calcule à partir de sa sauvegarde en ligne, et le met à jour à chaque envoi. Il tient dans l'offre gratuite de Cloudflare :
 100 000 requêtes et 100 000 écritures par jour.
+
+**Tutoriels pas à pas, depuis le navigateur :**
+- [Redéployer le serveur](TUTO-redeploiement.md)
+- [Mettre en place et gérer le classement](TUTO-classement.md)
 
 ## Hébergement
 
@@ -19,7 +24,7 @@ secret. Le `database_id` ne donne aucun accès sans le compte Cloudflare.
 
 | Fichier | Rôle |
 |---|---|
-| `worker.js` | Le serveur : routes `/v1/save`, `/v1/load`, `/v1/delete` |
+| `worker.js` | Le serveur : routes `/v1/save`, `/v1/load`, `/v1/delete`, `/v1/score`, `/v1/leaderboard` |
 | `schema.sql` | Table `saves` (une ligne par pseudo) |
 | `wrangler.toml` | Configuration du déploiement |
 | `test.mjs` | Tests locaux sans Cloudflare : `node server/cloud-save/test.mjs` |
@@ -72,8 +77,16 @@ Utile si le poste interdit d'installer ou d'exécuter des outils.
    sa page, sous *Domains & Routes*.
 
 Sans le binding `RATE_LIMITER`, le Worker applique une limite de secours en mémoire : 30 requêtes
-par minute et par IP, pour chaque instance. **Mise à jour du code** : refaire *Edit code*, coller le
-nouveau `worker.js`, puis *Deploy*.
+par minute et par IP, pour chaque instance.
+
+### Mettre à jour (à chaque modification de `worker.js` ou de `schema.sql`)
+
+1. **Base** : *D1 › lac-tranquille-saves › Console*, coller **tout** `schema.sql`, puis *Execute*.
+   C'est sans risque : les `CREATE … IF NOT EXISTS` ne touchent pas aux tables existantes, ils
+   ajoutent seulement ce qui manque (par exemple la table `scores` du classement, en 1.4.0).
+2. **Code** : *Workers & Pages › lac-tranquille-saves › Edit code*, remplacer tout par le nouveau
+   `worker.js`, puis *Deploy*.
+3. **Vérifier** : ouvrir `https://<adresse du Worker>/v1/leaderboard`, qui doit répondre `{"cat":"earned",…}`.
 
 ## Tester en local avant de déployer
 

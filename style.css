@@ -233,6 +233,70 @@ button { font-family: inherit; color: #fff; text-shadow: var(--outline); cursor:
   pointer-events: none;
 }
 
+/* ---------- Tutoriels ---------- */
+/* bulle de conseil : à gauche, à mi-hauteur (ni sur la barre d'icônes, ni sur le message du bas,
+   ni sur la jauge de remontée) ; au-dessus des panneaux pour guider aussi dans les options */
+#tuto {
+  position: absolute;
+  left: 0.8em;
+  top: 34%;
+  z-index: 8;
+  width: 24em;
+  max-width: calc(100% - 1.6em);
+  display: flex;
+  gap: 0.7em;
+  align-items: flex-start;
+  padding: 0.6em 0.8em;
+  pointer-events: auto;
+  animation: tuto-in 0.25s ease-out;
+}
+@keyframes tuto-in { from { opacity: 0; transform: translateY(0.6em); } }
+#tuto-face { width: 3.2em; height: 3.2em; flex: none; image-rendering: pixelated; background: rgba(0, 0, 0, 0.25); border-radius: 0.25em; }
+.tuto-body { flex: 1; min-width: 0; }
+#tuto-who { color: #ffe56a; font-weight: 600; }
+#tuto-text { margin: 0.25em 0 0.5em; line-height: 1.35; min-height: 2.7em; }
+.tuto-actions { display: flex; flex-wrap: wrap; gap: 0.4em; align-items: center; justify-content: flex-end; }
+.tuto-actions .talk-step { margin-right: auto; }
+#tuto-skip { opacity: 0.75; font-size: 0.85em; }
+/* flèche qui rebondit vers l'élément à utiliser (placée par tutoPlaceArrow) */
+#tuto-arrow {
+  position: absolute;
+  z-index: 9;
+  width: 0;
+  height: 0;
+  border-left: 0.9em solid transparent;
+  border-right: 0.9em solid transparent;
+  border-bottom: 1.3em solid #ffd84a;
+  filter: drop-shadow(0 0.12em 0 #000) drop-shadow(0 -0.06em 0 #000);
+  pointer-events: none;
+  animation: tuto-bounce 0.8s ease-in-out infinite;
+}
+#tuto-arrow.down { border-bottom: 0; border-top: 1.3em solid #ffd84a; animation-name: tuto-bounce-down; }
+@keyframes tuto-bounce { 50% { transform: translateY(0.5em); } }
+@keyframes tuto-bounce-down { 50% { transform: translateY(-0.5em); } }
+.tuto-focus { outline: 0.2em solid #ffd84a; outline-offset: 0.15em; animation: tuto-glow 1s ease-in-out infinite; position: relative; z-index: 7; }
+@keyframes tuto-glow { 50% { outline-color: #fff6c0; } }
+#game.compact #tuto { top: 30%; width: 26em; padding: 0.45em 0.6em; }
+#game.compact #tuto-face { width: 2.6em; height: 2.6em; }
+
+/* ---------- Menu : nouveautés de la version ---------- */
+.menu-news {
+  position: absolute;
+  left: 1em;
+  bottom: 1em;
+  width: 21em;
+  max-width: 34%;
+  padding: 0.6em 0.9em 0.7em;
+  font-size: 0.9em;
+  text-align: left;
+}
+.menu-news h3 { margin: 0 0 0.35em; font-size: 1.1em; color: #ffe56a; font-weight: 600; }
+.menu-news ul { margin: 0 0 0.5em; padding-left: 1.1em; }
+.menu-news li { margin: 0.15em 0; line-height: 1.25; }
+.news-link { color: #9ad0ff; text-decoration: none; }
+.news-link:hover { color: #ffe56a; text-decoration: underline; }
+#game.compact .menu-news { left: 0.5em; bottom: 0.5em; font-size: 0.78em; max-width: 36%; }
+
 /* ---------- Carte de prise ---------- */
 #catch-card {
   position: absolute;
@@ -938,7 +1002,6 @@ img.ghost { opacity: 0.45; }
 #opt-loop:disabled + * , .check:has(#opt-loop:disabled) { opacity: 0.5; }
 #now-playing { cursor: pointer; }
 #now-playing:hover { box-shadow: inset 0 0 0 0.14em #ffd84a, 0 0.3em 0 rgba(0, 0, 0, 0.35); }
-.lb-go { display: inline-block; margin: 0.2em 0.3em; color: #ffe56a; text-decoration: none; }
 
 /* ---------- Cinématique d'ouverture ---------- */
 #cine { position: absolute; inset: 0; z-index: 8; display: flex; align-items: flex-end; padding: 1.2em; pointer-events: auto; }

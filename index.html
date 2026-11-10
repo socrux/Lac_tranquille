@@ -8,10 +8,10 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <!-- Politique de sécurité : scripts, polices et styles uniquement locaux ; images locales ou générées
-       (data:) ; connexions externes autorisées : le classement sur GitHub et la sauvegarde en ligne
-       (Worker Cloudflare, voir server/cloud-save/). 'unsafe-inline' ne concerne
+       (data:) ; seule connexion externe autorisée : le serveur de la sauvegarde en ligne et du
+       classement (Worker Cloudflare, voir server/cloud-save/). 'unsafe-inline' ne concerne
        que les styles (attributs style="" générés par le jeu), jamais les scripts. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src https://raw.githubusercontent.com https://lac-tranquille-saves.cloudflare-blissful748.workers.dev; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src https://lac-tranquille-saves.cloudflare-blissful748.workers.dev; base-uri 'none'; form-action 'none'; object-src 'none'">
   <meta name="referrer" content="no-referrer">
   <title>Lac Tranquille</title>
   <link rel="stylesheet" href="style.css">
@@ -47,12 +47,28 @@
         <button class="hud-icon" data-open="crates" title="Raccourci : K"><img data-icon="crate" alt=""><span>Caisses</span></button>
         <button class="hud-icon" data-open="achievements" title="Raccourci : T"><img data-icon="trophy" alt=""><span>Succès</span></button>
         <button class="hud-icon" data-open="sheet" title="Raccourci : P"><img data-icon="profile" alt=""><span>Profil</span></button>
-        <button class="hud-icon" data-open="options" title="Raccourci : O"><img data-icon="options" alt=""><span>Options</span></button>
+        <button class="hud-icon" id="btn-save" title="Sauvegarder la partie (et l'envoyer en ligne) — raccourci : S"><img data-icon="save" alt=""><span>Sauver</span></button>
+        <button class="hud-icon" id="hud-options" data-open="options" title="Raccourci : O"><img data-icon="options" alt=""><span>Options</span></button>
         <button class="hud-icon" id="btn-menu" title="Raccourci : Échap"><img data-icon="menu" alt=""><span>Menu</span></button>
       </div>
     </div>
 
     <div id="message"></div>
+
+    <!-- Tutoriels : bulle de conseil (grand-père ou jeu) et flèche vers l'élément à utiliser -->
+    <div id="tuto" class="box" hidden>
+      <img id="tuto-face" alt="">
+      <div class="tuto-body">
+        <b id="tuto-who"></b>
+        <p id="tuto-text" aria-live="polite"></p>
+        <div class="tuto-actions">
+          <span class="talk-step" id="tuto-step"></span>
+          <button class="btn" id="tuto-skip">Passer le tutoriel</button>
+          <button class="btn" id="tuto-next">Suivant ›</button>
+        </div>
+      </div>
+    </div>
+    <div id="tuto-arrow" hidden></div>
     <div id="perfect" hidden>PERFECT !</div>
     <div id="toasts"></div>
     <div id="inv-tip" class="inv-diff" hidden></div>
@@ -98,6 +114,12 @@
       <button class="menu-item" id="btn-leaderboard">Classement</button>
       <button class="menu-item" id="btn-options">Options</button>
       <p id="save-info"></p>
+      <!-- Nouveautés de la version (WHATS_NEW dans game.js) -->
+      <aside id="menu-news" class="box menu-news">
+        <h3 id="news-title"></h3>
+        <ul id="news-list"></ul>
+        <a class="news-link" href="https://github.com/socrux/Lac_tranquille/blob/main/CHANGELOG.md" target="_blank" rel="noopener noreferrer">Toutes les notes de version ›</a>
+      </aside>
     </div>
 
     <div id="overlay" hidden>
@@ -377,6 +399,7 @@
         <div class="opt-row">
           <button class="btn" id="opt-fullscreen">Plein écran</button>
           <button class="btn" id="opt-intro">Revoir l'introduction</button>
+          <button class="btn" id="opt-tuto">Revoir les tutoriels</button>
         </div>
         <div class="save-box">
           <h3>Sauvegarde</h3>

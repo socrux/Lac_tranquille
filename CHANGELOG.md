@@ -16,6 +16,24 @@ La partie est enregistrée **dans le navigateur, pour une adresse donnée**. Une
 
 ---
 
+## 1.5.0 — Classement, bouton Sauver et tutoriels (10/11/2026)
+
+✅ **Sauvegarde conservée.** Les parties déjà commencées passent la pêche d'entraînement : seule l'astuce sauvegarde leur est montrée.
+
+### Nouveautés
+- **Nouveau classement en ligne**, instantané : il n'y a plus de page GitHub à remplir.
+  - « Envoyer mon score » active la sauvegarde en ligne au besoin et vous inscrit au classement.
+  - Le score est calculé par le serveur à partir de votre sauvegarde en ligne, puis mis à jour à chaque sauvegarde. Le meilleur de chaque catégorie est conservé.
+  - Votre pseudo est protégé par votre clé : personne ne peut envoyer un score à votre place.
+- **Bouton « Sauver »** dans la barre d'icônes (raccourci : S) : sauvegarde la partie dans le navigateur et en ligne.
+- **Sauvegarde en ligne activée par défaut** : elle s'active toute seule en entrant en partie, et votre clé s'affiche. Si vous déliez l'appareil, elle ne se réactive plus d'elle-même.
+- **Tutoriel de pêche** : au début d'une nouvelle partie, Papi Émile vous attend au ponton, puis vous guide pour une pêche d'entraînement (lancer, attendre, ferrer, remonter). Le poisson est facile et la morsure rapide.
+- **Astuce sauvegarde** : des flèches montrent le bouton « Sauver », puis la clé personnelle dans les options.
+- Les tutoriels peuvent être passés, et revus depuis les options.
+- **Menu de départ** : un encart présente la version et ses principales nouveautés, avec un lien vers ces notes de version.
+
+---
+
 ## 1.4.0 — Sauvegarde en ligne (10/11/2026)
 
 ✅ **Sauvegarde conservée.**
