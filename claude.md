@@ -24,6 +24,7 @@ leaderboard prévu (`leaderboard.json`).
 | `audio.js`   | Musique et SFX 100 % synthétisés (Web Audio API) via module IIFE `Sound` |
 | `style.css`  | Styles de l'UI |
 | `leaderboard.json` | Scores (futur endpoint serveur) |
+| `CHANGELOG.md` | Notes de version, une section par `GAME_VERSION` (à compléter à chaque pull request) |
 
 ## Ordre de chargement important
 
