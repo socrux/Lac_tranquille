@@ -22,7 +22,15 @@ body {
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  /* mobile : pas de zoom au double appui, pas de rebond de page, pas de surbrillance au toucher */
+  touch-action: manipulation;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
+/* hauteur réellement visible sur mobile (barre d'adresse comprise) */
+@supports (height: 100dvh) { html, body { height: 100dvh; } }
 
 [hidden] { display: none !important; }
 
@@ -34,12 +42,19 @@ img, canvas.px { image-rendering: pixelated; }
   --outline: 0.09em 0 #000, -0.09em 0 #000, 0 0.09em #000, 0 -0.09em #000,
              0.07em 0.07em #000, -0.07em 0.07em #000, 0.07em -0.07em #000, -0.07em -0.07em #000;
   position: relative;
-  width: min(100vw, calc(100vh * 16 / 9));
-  height: min(100vh, calc(100vw * 9 / 16));
+  /* zone utile : l'écran moins les encoches et coins arrondis (safe area), au format 16:9 */
+  --sw: calc(100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
+  --sh: calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  width: min(var(--sw), calc(var(--sh) * 16 / 9));
+  height: min(var(--sh), calc(var(--sw) * 9 / 16));
   font-size: 16px;
   user-select: none;
   overflow: hidden;
   text-shadow: var(--outline);
+}
+
+@supports (height: 100dvh) {
+  #game { --sh: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); }
 }
 
 #canvas {
@@ -49,7 +64,67 @@ img, canvas.px { image-rendering: pixelated; }
   height: 100%;
   image-rendering: pixelated;
   cursor: pointer;
+  /* le doigt maintenu sur le lac sert à remonter la ligne : ni défilement, ni menu contextuel */
+  touch-action: none;
+  -webkit-touch-callout: none;
 }
+
+/* ---------- Petits écrans (téléphone à l'horizontale) : classe posée par fitUi() ----------
+   Texte plus grand que la simple mise à l'échelle, panneaux presque plein écran (les listes
+   défilent), barre d'icônes sans libellés, cibles tactiles d'au moins ~44 px. */
+#game.compact .panel-wrap { width: 98%; height: 97%; }
+#game.compact .panel { padding: 0.6em 0.8em; overflow-y: auto; }
+#game.compact .panel header { margin-bottom: 0.4em; gap: 0.6em; }
+#game.compact .panel h2 { font-size: 1.5em; }
+#game.compact #hud { top: 0.4em; left: 0.4em; right: 0.4em; gap: 0.5em; }
+#game.compact .hud-stats { padding: 0.35em 0.6em; font-size: 0.95em; gap: 0; }
+#game.compact .hud-world { padding: 0.3em 0.6em; font-size: 0.85em; max-width: 14em; }
+#game.compact .hud-left { gap: 0.3em; }
+#game.compact .hud-buttons { gap: 0.3em; }
+#game.compact .hud-icon { width: 3.6em; padding: 0.35em 0.2em; }
+#game.compact .hud-icon img { width: 2.4em; height: 2.4em; }
+#game.compact .hud-icon span { display: none; }
+#game.compact #now-playing { right: 0.4em; bottom: 0.4em; max-width: 3.4em; padding: 0.3em; }
+#game.compact .np-text { display: none; }
+#game.compact .options { width: 46em; max-width: 96%; max-height: 97%; }
+#game.compact .opt-row { margin: 0.55em 0; font-size: 1.05em; gap: 0.7em; }
+#game.compact .opt-row label:not(.check) { width: 6.5em; flex: none; }
+#game.compact .opt-select { min-width: 0; flex: 1; max-width: 100%; }
+#game.compact .btn { min-height: 2.4em; padding: 0.3em 0.8em; }
+/* plus de survol sur écran tactile : pas d'agrandissement « collé » après un appui */
+@media (hover: none) {
+  .menu-item:hover:not(:disabled) { transform: none; }
+  .hud-icon:hover img { transform: none; }
+}
+
+/* ---------- Téléphone à la verticale : le jeu se joue à l'horizontale ---------- */
+#rotate { display: none; }
+@media (orientation: portrait) and (pointer: coarse) {
+  #rotate {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1.2em;
+    padding: 2em;
+    text-align: center;
+    background: #0a0e1c;
+    font-size: 18px;
+  }
+  #game { visibility: hidden; }
+}
+.rotate-phone {
+  width: 3em;
+  height: 5em;
+  border: 0.3em solid #8394ec;
+  border-radius: 0.5em;
+  animation: rotate-phone 2.2s ease-in-out infinite;
+}
+@keyframes rotate-phone { 0%, 25% { transform: rotate(0); } 55%, 100% { transform: rotate(-90deg); } }
+#rotate p { margin: 0; max-width: 16em; line-height: 1.4; }
 
 /* ---------- Boîtes façon interface pixel ---------- */
 .box {
@@ -577,6 +652,15 @@ button { font-family: inherit; color: #fff; text-shadow: var(--outline); cursor:
 .save-hint { margin: 0 0 0.6em; font-size: 0.85em; opacity: 0.85; }
 .save-confirm { margin-top: 0.6em; padding: 0.5em 0.7em; background: rgba(20, 28, 80, 0.6); border-radius: 0.3em; }
 .save-confirm p { margin: 0 0 0.5em; font-size: 0.9em; }
+/* sauvegarde en ligne */
+.cloud-box { margin-top: 0.9em; padding-top: 0.7em; border-top: 0.12em dashed rgba(131, 148, 236, 0.35); }
+.cloud-keyrow { display: flex; flex-wrap: wrap; gap: 0.5em; align-items: center; }
+.cloud-key { font-size: 1.15em; letter-spacing: 0.06em; padding: 0.25em 0.5em; background: rgba(0, 0, 0, 0.35);
+  border-radius: 0.25em; color: #ffe56a; user-select: all; word-break: break-all; }
+.cloud-form { display: grid; grid-template-columns: auto 1fr; gap: 0.4em 0.6em; align-items: center; margin-bottom: 0.5em; }
+.cloud-form input { font: inherit; padding: 0.25em 0.4em; min-width: 0; }
+.cloud-danger { margin-top: 0.5em; }
+.cloud-danger .btn { opacity: 0.8; font-size: 0.9em; }
 
 /* ---------- HUD : jour, heure et météo ---------- */
 .hud-left { display: flex; flex-direction: column; gap: 0.45em; align-items: flex-start; }

@@ -24,7 +24,7 @@ leaderboard prévu (`leaderboard.json`).
 | `audio.js`   | Musique et SFX 100 % synthétisés (Web Audio API) via module IIFE `Sound` |
 | `style.css`  | Styles de l'UI |
 | `leaderboard.json` | Scores (futur endpoint serveur) |
-| `CHANGELOG.md` | Notes de version, une section par `GAME_VERSION` (à compléter à chaque pull request) |
+| `CHANGELOG.md` | Notes de version, une section par `GAME_VERSION` (à compléter à chaque pull request, avec l'impact sur la sauvegarde : ✅ / ⚠️ / ⛔) |
 
 ## Ordre de chargement important
 
@@ -57,6 +57,18 @@ l'évaluation complète de game.js (c'est le cas : chargement depuis le menu ou 
   `rods`, `dex`, `potsOwned`, `achievements`, `boat`, `items`, `equip`, `clock`, `weather`, `curse`, `stats`).
 - Équipement : `SLOTS` (world.js) liste les emplacements ; `kind` = type d'objet accepté (`ITEM_KINDS`).
   Les 3 emplacements `acc1`..`acc3` acceptent les accessoires, jamais deux fois le même.
+- **Compatibilité entre versions** (éviter de faire perdre les parties) :
+  - ajouter un champ = lui donner une valeur par défaut dans `emptyProgress()` ; ne pas changer `v` ;
+  - ne jamais renommer ni supprimer l'`id` d'un contenu sans l'ajouter à `SAVE_RENAMES` (ancien → nouveau) ;
+  - `validProgress()` relit chaque section dans un `step()` isolé : une nouvelle section y va aussi ;
+  - copie de sécurité automatique (`lacTranquille.save.backup`) au changement de version (`gv` écrit
+    dans la save), avant nouvelle partie, import ou restauration ;
+  - toute perte de progression doit être annoncée dans `CHANGELOG.md` (⚠️ partielle / ⛔ effacée) ;
+  - nouveau champ de premier niveau = l'ajouter aussi à `SAVE_FIELDS` dans `server/cloud-save/worker.js`
+    et redéployer le Worker, sinon la sauvegarde en ligne refuse les envois.
+- Sauvegarde en ligne : lien de l'appareil dans `lacTranquille.cloud` (`{ name, key, rev, at }`) ;
+  clé générée par `crypto.getRandomValues`, jamais par `Math.random()`. Détails et déploiement :
+  `server/cloud-save/README.md`.
 - **Règle** : toute donnée relue depuis localStorage est du texte non fiable → try/catch +
   nettoyage champ par champ (même logique que `validLook()`). Ne jamais fusionner une save
   brute avec `Object.assign` sur l'objet progress sans validation.
@@ -68,7 +80,9 @@ l'évaluation complète de game.js (c'est le cas : chargement depuis le menu ou 
 2. Aucune dépendance externe, CDN ou fetch vers un domaine tiers — le jeu reste 100 % local
    et autonome (polices comprises : `fonts/`). **Exception temporaire : GitHub**, pour le classement
    uniquement (lecture de `leaderboard.json` sur `raw.githubusercontent.com`, ouverture d'une issue
-   sur `github.com`). Toute nouvelle origine doit aussi être ajoutée à la CSP de `index.html`.
+   sur `github.com`). **Exception : sauvegarde en ligne**, le Worker `server/cloud-save/`
+   (adresse dans `CLOUD_SAVE.url`, game.js). Toute nouvelle origine doit aussi être ajoutée à
+   la CSP de `index.html`.
 3. `Math.random()` uniquement pour le gameplay. Jamais pour un identifiant, token ou usage
    cryptographique → `crypto.randomUUID()` / `crypto.getRandomValues()` si besoin.
 4. Données réseau (leaderboard, import/export de save) : toujours re-valider côté serveur avec

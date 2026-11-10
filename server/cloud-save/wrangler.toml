@@ -1,0 +1,22 @@
+# Worker des sauvegardes en ligne — voir README.md pour le déploiement
+name = "lac-tranquille-saves"
+main = "worker.js"
+compatibility_date = "2025-09-01"
+
+[vars]
+# Origines autorisées (CORS), séparées par des virgules. Le jeu est hébergé sur GitHub Pages
+# (https://socrux.github.io/Lac_tranquille/ → origine "https://socrux.github.io", sans le chemin).
+# "null" = jeu ouvert depuis le disque (file://), pratique pour tester en local.
+# L'accès reste protégé par la clé (pas de cookie) : CORS ne sert ici qu'à limiter les sites appelants.
+ALLOWED_ORIGINS = "https://socrux.github.io,null"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "lac-tranquille-saves"
+database_id = "A_REMPLACER_PAR_L_ID_AFFICHE_PAR_WRANGLER"
+
+# 30 requêtes par minute et par adresse IP
+[[ratelimits]]
+name = "RATE_LIMITER"
+namespace_id = "1001"
+simple = { limit = 30, period = 60 }

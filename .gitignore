@@ -1,0 +1,4 @@
+# Fichiers locaux de Wrangler (Cloudflare) : base D1 locale, cache — jamais publiés sur GitHub Pages
+.wrangler/
+node_modules/
+.dev.vars

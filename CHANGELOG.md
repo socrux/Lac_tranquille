@@ -2,9 +2,58 @@
 
 Format des versions : MAJEUR.MINEUR.CORRECTIF (voir `GAME_VERSION` dans `game.js`).
 
+## Et ma sauvegarde ?
+
+Chaque version indique ce qu'il advient de votre partie :
+
+- ✅ **Sauvegarde conservée** : rien à faire, votre partie continue.
+- ⚠️ **Sauvegarde partiellement réinitialisée** : une partie de la progression est perdue (le détail est donné).
+- ⛔ **Sauvegarde effacée** : la partie repart de zéro. Pensez à exporter votre sauvegarde avant de mettre à jour.
+
+Depuis la 1.4.0, une copie de sécurité est faite automatiquement avant chaque mise à jour du jeu et avant une nouvelle partie. Vous pouvez la restaurer depuis **Options › Sauvegarde**.
+
+La partie est enregistrée **dans le navigateur, pour une adresse donnée**. Une autre adresse (un autre dossier sur le disque, une autre version en ligne, la navigation privée, un autre navigateur) part d'une partie vierge sans avoir effacé la vôtre. Pour changer d'appareil, utilisez la **sauvegarde en ligne** (pseudo + clé), ou **Exporter** puis **Importer**.
+
+---
+
+## 1.4.0 — Sauvegarde en ligne (10/11/2026)
+
+✅ **Sauvegarde conservée.**
+
+### Nouveautés
+- **Sauvegarde en ligne** (Options › Sauvegarde en ligne) : reprenez votre partie sur n'importe quel appareil avec votre **pseudo** et votre **clé personnelle**.
+  - Le jeu génère votre clé à l'activation (`LAC-XXXXX-XXXXX-XXXXX-XXXXX`). Notez-la : elle ne peut pas être retrouvée.
+  - La partie est envoyée automatiquement toutes les 5 minutes et au retour au menu. Un bouton « Envoyer maintenant » est aussi disponible.
+  - « Reprendre une partie en ligne » : saisissez votre pseudo et votre clé, vérifiez l'aperçu, puis confirmez.
+  - Joué sur deux appareils ? Une version plus avancée en ligne n'est jamais écrasée sans vous demander.
+  - Vous pouvez délier un appareil, ou supprimer votre sauvegarde en ligne.
+
+### Mobile
+- **Écran adapté aux téléphones** (à l'horizontale) :
+  - texte plus grand ;
+  - panneaux presque plein écran, dont le contenu défile ;
+  - barre d'icônes compacte ;
+  - boutons assez grands pour le doigt.
+- Le jeu tient compte des encoches et des coins arrondis, ainsi que de la barre d'adresse du navigateur.
+- Téléphone tenu à la verticale : un écran invite à le tourner. Sur Android, un bouton « Plein écran » bloque aussi l'affichage à l'horizontale.
+- Garder le doigt appuyé sur le lac remonte la ligne, sans ouvrir de menu contextuel, de loupe ni de zoom.
+- Sur écran tactile, les consignes disent « Touchez » au lieu de « Cliquez ».
+
+### Sauvegarde
+- **Copie de sécurité automatique**, restaurable depuis les options. Elle est faite :
+  - au premier lancement d'une nouvelle version du jeu ;
+  - avant une nouvelle partie ;
+  - avant un import ou une restauration (on peut donc revenir en arrière) ;
+  - quand une sauvegarde ne peut pas être lue (l'original est gardé tel quel).
+- **Chargement section par section** : si une partie de la sauvegarde est abîmée ou vient d'un format différent, seule cette section revient à sa valeur par défaut. Le reste de la partie est conservé.
+- **Renommage des contenus** : quand un poisson, une canne ou un objet change d'identifiant, les sauvegardes existantes sont converties automatiquement au lieu de perdre l'élément.
+- La sauvegarde retient la version du jeu qui l'a écrite.
+
 ---
 
 ## 1.3.1 — Le village redessiné (10/11/2026)
+
+✅ **Sauvegarde conservée.**
 
 ### Graphismes
 - Le plan de Saint-Aubin-du-Lac est entièrement redessiné en vue de dessus, avec une caméra fixe et éloignée. Le village est construit en tuiles de 16 px, dans l'esprit des villes de RPG en pixel art.
@@ -29,6 +78,8 @@ Format des versions : MAJEUR.MINEUR.CORRECTIF (voir `GAME_VERSION` dans `game.js
 
 ## 1.3.0 — Bienvenue au village (10/11/2026)
 
+✅ **Sauvegarde conservée.** Les données du village (bourriche, banque, cours du poisson, habitants rencontrés) démarrent à zéro.
+
 ### Nouveautés
 - **Cinématique d'ouverture** : un employé de bureau quitte son travail et revient dans son village natal, au bord d'un lac étrange.
 - **Le village de Saint-Aubin-du-Lac**, accessible depuis le lac, avec ses habitants :
@@ -52,6 +103,8 @@ Format des versions : MAJEUR.MINEUR.CORRECTIF (voir `GAME_VERSION` dans `game.js
 
 ## 1.2.1 — Correctifs (10/11/2026)
 
+✅ **Sauvegarde conservée.** Le temps de jeu est recalculé d'après l'horloge de la partie.
+
 ### Corrections
 - Revenir au menu en pleine prise compte désormais le poisson comme échappé. La prise n'est plus perdue sans laisser de trace.
 - Les sons différés (rugissement, tonnerre, objet trouvé) ne se déclenchent plus sur le menu après un retour en arrière.
@@ -64,6 +117,8 @@ Format des versions : MAJEUR.MINEUR.CORRECTIF (voir `GAME_VERSION` dans `game.js
 ---
 
 ## 1.2.0 — Accessoires et malédictions (09/11/2026)
+
+✅ **Sauvegarde conservée.**
 
 ### Nouveautés
 - **Accessoires** : 3 emplacements s'ajoutent aux 5 vêtements.
@@ -89,6 +144,8 @@ Format des versions : MAJEUR.MINEUR.CORRECTIF (voir `GAME_VERSION` dans `game.js
 
 ## 1.1.1 — Revue de sécurité (09/11/2026)
 
+✅ **Sauvegarde conservée.** Les valeurs hors limites sont ramenées dans les bornes.
+
 ### Sécurité
 - Sauvegarde :
   - chaque champ est vérifié et borné, qu'il vienne du stockage local ou d'un import ;
@@ -105,6 +162,8 @@ Format des versions : MAJEUR.MINEUR.CORRECTIF (voir `GAME_VERSION` dans `game.js
 
 ## 1.1.0 — Bateaux, personnage et classement (09/11/2026)
 
+✅ **Sauvegarde conservée.** À la reprise, le jeu demande de créer son personnage. La progression reste intacte.
+
 ### Nouveautés
 - **Personnage personnalisable** à la création d'une partie, modifiable ensuite dans le profil (sauf le nom).
 - **Bateaux** : 5 niveaux d'amélioration.
@@ -120,6 +179,8 @@ Format des versions : MAJEUR.MINEUR.CORRECTIF (voir `GAME_VERSION` dans `game.js
 ---
 
 ## 1.0.0 — Première version (09/11/2026)
+
+⚠️ **Sauvegarde partiellement réinitialisée.** Pour les parties commencées avant la 1.0.0, seul le nombre de poissons pêchés est repris.
 
 ### Contenu
 - La pêche au lac en pixel art : poissons, crustacés, cannes, appâts, casiers et carnet des espèces pêchées.

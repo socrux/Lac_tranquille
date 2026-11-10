@@ -14,7 +14,11 @@ const BOAT_Y = 222;          // haut de la coque
 const $ = (id) => document.getElementById(id);
 
 // Version du jeu : à mettre à jour à chaque pull request (MAJEUR.MINEUR.CORRECTIF)
-const GAME_VERSION = '1.3.1';
+const GAME_VERSION = '1.4.0';
+// Écran tactile principal (téléphone, tablette) : consignes « Touchez » au lieu de « Cliquez »
+const TOUCH = !!window.matchMedia?.('(pointer: coarse)').matches;
+const CLICK = TOUCH ? 'Touchez' : 'Cliquez';
+const HOLD = TOUCH ? 'Gardez le doigt appuyé' : 'Maintenez le clic (ou Espace)';
 
 // ===========================================================================
 // Données
@@ -374,16 +378,47 @@ function validPot(x) {
   };
 }
 
-function validProgress(s) {
-  if (!isObj(s)) return null;
+// --- Compatibilité des sauvegardes entre versions
+// Règle : ne jamais renommer ni supprimer l'id d'un contenu (poisson, canne, objet, pièce de bateau…)
+// sans l'ajouter ici (ancien id → nouvel id). Sinon, l'élément disparaît des sauvegardes existantes.
+const SAVE_RENAMES = {};
+const SAVE_SKIP_KEYS = new Set(['__proto__', 'constructor', 'prototype', 'look']);   // look : le nom est libre
+function renameId(x) {
+  if (typeof x !== 'string') return x;
+  const [id, ...rest] = x.split(':');                     // clés du carnet : « id » ou « id:abom »
+  return hasOwn(SAVE_RENAMES, id) ? [SAVE_RENAMES[id], ...rest].join(':') : x;
+}
+// Applique SAVE_RENAMES aux valeurs et aux clés d'une sauvegarde brute (profondeur bornée)
+function applyRenames(x, depth = 0) {
+  if (depth > 6) return x;
+  if (Array.isArray(x)) return x.map((v) => applyRenames(v, depth + 1));
+  if (!isObj(x)) return renameId(x);
+  const out = {};
+  for (const k of Object.keys(x)) {
+    if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue;
+    out[renameId(k)] = SAVE_SKIP_KEYS.has(k) ? x[k] : applyRenames(x[k], depth + 1);
+  }
+  return out;
+}
+
+function validProgress(raw) {
+  if (!isObj(raw)) return null;
   const p = emptyProgress();
-  if (s.v !== 2) {                              // ancienne sauvegarde v1 : seul le compteur est repris
-    if (!hasOwn(s, 'count')) return null;       // un JSON quelconque n'est pas une sauvegarde
-    p.stats.caught = vInt(s.count, SAVE_LIM.count);
+  if (raw.v !== 2) {                            // ancienne sauvegarde v1 : seul le compteur est repris
+    if (!hasOwn(raw, 'count')) return null;     // un JSON quelconque n'est pas une sauvegarde
+    p.stats.caught = vInt(raw.count, SAVE_LIM.count);
     p.stats.casts = p.stats.caught;             // sinon « plus de prises que de lancers » au classement
     return p;
   }
-  p.money = vInt(s.money, SAVE_LIM.money);
+  let s = raw;
+  try { if (Object.keys(SAVE_RENAMES).length) s = applyRenames(raw); } catch { s = raw; }
+  // Chaque section est relue indépendamment : une section illisible (format d'une autre version,
+  // donnée abîmée) garde sa valeur par défaut au lieu de faire perdre toute la partie.
+  const step = (name, fn) => {
+    try { fn(); } catch (e) { console.warn(`Sauvegarde : section « ${name} » ignorée`, e); }
+  };
+  step('argent', () => { p.money = vInt(s.money, SAVE_LIM.money); });
+  step('cannes et appâts', () => {
   // cannes : uniquement des cannes connues, sans doublon, la canne en bambou toujours présente
   p.rods = [...new Set(vArr(s.rods).filter((id) => hasOwn(ROD_BY_ID, id)))];
   if (!p.rods.includes('bambou')) p.rods.unshift('bambou');
@@ -395,7 +430,9 @@ function validProgress(s) {
     if (n > 0) p.baits[b.id] = n;
   }
   p.bait = s.bait === 'pain' || p.baits[s.bait] > 0 ? s.bait : 'pain';
+  });
   // carnet : uniquement les clés connues
+  step('carnet', () => {
   const dex = vObj(s.dex);
   for (const f of [...FISH, ...CRUSTS]) {
     for (const ab of f.unique ? [false] : [false, true]) {
@@ -408,17 +445,23 @@ function validProgress(s) {
       };
     }
   }
-  const owned = vObj(s.potsOwned);
-  for (const t of POTS) {
-    const n = hasOwn(owned, t.id) ? vInt(owned[t.id], SAVE_LIM.pots) : 0;
-    if (n > 0) p.potsOwned[t.id] = n;
-  }
-  p.pots = [0, 1].map((i) => validPot(vArr(s.pots)[i]));
-  const ach = vObj(s.achievements);
-  for (const a of ACHIEVEMENTS) {
-    if (hasOwn(ach, a.id) && vNum(ach[a.id], 1e14) > 0) p.achievements[a.id] = ach[a.id];
-  }
+  });
+  step('casiers', () => {
+    const owned = vObj(s.potsOwned);
+    for (const t of POTS) {
+      const n = hasOwn(owned, t.id) ? vInt(owned[t.id], SAVE_LIM.pots) : 0;
+      if (n > 0) p.potsOwned[t.id] = n;
+    }
+    p.pots = [0, 1].map((i) => validPot(vArr(s.pots)[i]));
+  });
+  step('succès', () => {
+    const ach = vObj(s.achievements);
+    for (const a of ACHIEVEMENTS) {
+      if (hasOwn(ach, a.id) && vNum(ach[a.id], 1e14) > 0) p.achievements[a.id] = ach[a.id];
+    }
+  });
   // inventaire : objets connus, identifiants entiers positifs et uniques
+  step('inventaire', () => {
   const seen = new Set();
   p.items = vArr(s.items).slice(0, ITEM_CAP)
     .filter((it) => isObj(it) && hasOwn(ITEM_BY_ID, it.id) && Number.isSafeInteger(it.uid) && it.uid > 0
@@ -437,16 +480,22 @@ function validProgress(s) {
     usedUids.add(it.uid);
     p.equip[sl.id] = it.uid;
   }
-  const boat = vObj(s.boat);
-  const allParts = BOATS.flatMap((b) => [...(b.parts || []), ...(b.special ? [b.special] : [])].map((x) => x.id));
-  p.boat = {
-    level: vInt(boat.level, BOAT_MAX, 1),
-    parts: [...new Set(vArr(boat.parts).filter((id) => allParts.includes(id)))],
-  };
-  p.look = s.look ? validLook(s.look) : null;   // ancienne sauvegarde : le joueur créera son personnage
-  p.clock = typeof s.clock === 'number' && Number.isFinite(s.clock) ? vNum(s.clock, SAVE_LIM.time) : CLOCK_START;
-  const w = vObj(s.weather);
-  p.weather = hasOwn(WEATHER_BY_ID, w.id) ? { id: w.id, until: vNum(w.until, SAVE_LIM.time) } : null;
+  });
+  step('bateau', () => {
+    const boat = vObj(s.boat);
+    const allParts = BOATS.flatMap((b) => [...(b.parts || []), ...(b.special ? [b.special] : [])].map((x) => x.id));
+    p.boat = {
+      level: vInt(boat.level, BOAT_MAX, 1),
+      parts: [...new Set(vArr(boat.parts).filter((id) => allParts.includes(id)))],
+    };
+  });
+  step('personnage', () => { p.look = s.look ? validLook(s.look) : null; });   // sinon : créé à la reprise
+  step('horloge et météo', () => {
+    p.clock = typeof s.clock === 'number' && Number.isFinite(s.clock) ? vNum(s.clock, SAVE_LIM.time) : CLOCK_START;
+    const w = vObj(s.weather);
+    p.weather = hasOwn(WEATHER_BY_ID, w.id) ? { id: w.id, until: vNum(w.until, SAVE_LIM.time) } : null;
+  });
+  step('malédiction', () => {
   const cu = vObj(s.curse);
   p.curse = {
     day: vInt(cu.day, SAVE_LIM.count),
@@ -454,7 +503,9 @@ function validProgress(s) {
     active: hasOwn(CURSE_BY_ID, cu.active) ? cu.active : null,
     decided: cu.decided === true,
   };
+  });
   // bourriche : prises connues (le Grand Ancien n'a pas de version abomination), poids et valeur bornés
+  step('bourriche', () => {
   const seenCatch = new Set();
   p.catches = vArr(s.catches).slice(0, KEEPNET_SAVE_MAX).map((c) => {
     if (!isObj(c) || !Number.isSafeInteger(c.uid) || c.uid <= 0 || seenCatch.has(c.uid)) return null;
@@ -464,6 +515,8 @@ function validProgress(s) {
     return { uid: c.uid, id: f.id, abom: c.abom === true && !f.unique, w: vNum(c.w, f.kg[1] * 3), v: vInt(c.v, f.value * 100) };
   }).filter(Boolean);
   p.itemSeq = p.catches.reduce((m, c) => Math.max(m, c.uid), p.itemSeq);
+  });
+  step('village', () => {
   p.bank = vInt(s.bank, SAVE_LIM.money);
   const mk = vObj(s.market);
   p.market = {
@@ -476,7 +529,9 @@ function validProgress(s) {
   p.bric = { day: vInt(br.day, SAVE_LIM.count), stock, sold: stock.map((_, i) => vArr(br.sold)[i] === true) };
   const met = vObj(s.met);
   for (const n of NPCS) if (met[n.id] === true) p.met[n.id] = true;
+  });
   // statistiques : uniquement les compteurs connus, nombres finis et bornés
+  step('statistiques', () => {
   const st = vObj(s.stats);
   for (const k of Object.keys(p.stats)) {
     if (k !== 'best' && hasOwn(st, k)) p.stats[k] = vNum(st[k], SAVE_LIM.money);
@@ -485,18 +540,72 @@ function validProgress(s) {
   p.stats.best = hasOwn(FISH_BY_ID, best.id) || hasOwn(CRUST_BY_ID, best.id)
     ? { id: best.id, abom: best.abom === true, weight: vNum(best.weight, 1e5), size: vNum(best.size, 1e5) }
     : null;
+  });
   return p;
 }
 
+// --- Copie de sécurité : la sauvegarde brute est recopiée telle quelle (jamais interprétée ici)
+// avant tout ce qui pourrait la perdre : changement de version du jeu, sauvegarde illisible,
+// nouvelle partie. Restaurable depuis les options (validée comme un import).
+const SAVE_BACKUP_KEY = 'lacTranquille.save.backup';
+const SAVE_BACKUP_MAX = SAVE_FILE_MAX;
+function backupSave(raw, reason) {
+  if (typeof raw !== 'string' || !raw || raw.length > SAVE_BACKUP_MAX) return;
+  try {
+    localStorage.setItem(SAVE_BACKUP_KEY, JSON.stringify({ at: Date.now(), reason, from: savedVersion(raw), save: raw }));
+  } catch { /* stockage indisponible ou plein */ }
+}
+function savedVersion(raw) {
+  try {
+    const gv = JSON.parse(raw)?.gv;
+    return typeof gv === 'string' && /^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(gv) ? gv : null;
+  } catch { return null; }
+}
+function readBackup() {
+  try {
+    const b = JSON.parse(localStorage.getItem(SAVE_BACKUP_KEY));
+    if (!isObj(b) || typeof b.save !== 'string') return null;
+    const save = validProgress(JSON.parse(b.save));
+    if (!save) return null;
+    const from = typeof b.from === 'string' && /^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(b.from) ? b.from : null;
+    return { save, at: vInt(b.at, 1e14), from };
+  } catch { return null; }
+}
+function readRawSave() {
+  try { return localStorage.getItem(SAVE_KEY); } catch { return null; }
+}
+
 function loadSave() {
-  try { return validProgress(JSON.parse(localStorage.getItem(SAVE_KEY))); } catch { return null; }
+  const raw = readRawSave();
+  if (!raw) return null;
+  let save = null;
+  try { save = validProgress(JSON.parse(raw)); } catch { save = null; }
+  // sauvegarde illisible, ou écrite par une autre version : copie de l'original avant toute écriture
+  if (!save) backupSave(raw, 'illisible');
+  else if (savedVersion(raw) !== GAME_VERSION && readBackupRaw() !== raw) backupSave(raw, 'version');
+  return save;
+}
+function readBackupRaw() {
+  try { return JSON.parse(localStorage.getItem(SAVE_BACKUP_KEY))?.save ?? null; } catch { return null; }
 }
 function writeSave() {
-  try { localStorage.setItem(SAVE_KEY, JSON.stringify(progress)); } catch { /* stockage indisponible */ }
+  // gv : version du jeu qui a écrit la sauvegarde (sert à la copie de sécurité au changement de version)
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify({ ...progress, gv: GAME_VERSION })); } catch { /* stockage indisponible */ }
+  if (inGame) cloudAuto();
 }
 function clearSave() {
+  backupSave(readRawSave(), 'nouvelle partie');
   try { localStorage.removeItem(SAVE_KEY); } catch { /* idem */ }
+  cloudUnlink();                                   // le lien en ligne appartenait à l'ancienne partie
 }
+
+// --- Sauvegarde en ligne (Worker Cloudflare, voir server/cloud-save/) : configuration et état.
+// url vide = fonction masquée. L'origine doit aussi figurer dans connect-src de la CSP (index.html).
+const CLOUD_SAVE = { url: 'https://lac-tranquille-saves.cloudflare-blissful748.workers.dev' };
+const CLOUD_LINK_KEY = 'lacTranquille.cloud';      // { name, key, rev, at } : lien de cet appareil
+const CLOUD_KEY_RE = /^LAC(-[0-9A-HJKMNP-TV-Z]{5}){4}$/;
+const CLOUD_AUTO_MS = 5 * 60 * 1000;               // envoi automatique au plus toutes les 5 minutes
+const cloud = { link: null, busy: false, lastPush: 0, conflict: null, msg: '', showKey: false };
 
 // ===========================================================================
 // État du jeu
@@ -1201,7 +1310,7 @@ function startReel(phase = 0) {
   // une prise parfaite contre le Grand Ancien doit l'être sur les 3 phases
   if (cp && phase > 0) game.mg.perfect = game.perfectSoFar;
   setState('reeling');
-  say(cp ? `Phase ${phase + 1} / 3 — ${cp.name} Maintenez le clic !` : 'Maintenez le clic (ou Espace) pour faire monter la barre verte !');
+  say(cp ? `Phase ${phase + 1} / 3 — ${cp.name} ${TOUCH ? 'Gardez le doigt appuyé' : 'Maintenez le clic'} !` : `${HOLD} pour faire monter la barre verte !`);
   Sound.hook();
 }
 
@@ -1320,7 +1429,7 @@ function continueAfterCatch() {
   $('catch-card').hidden = true;
   if (cth.active) cthulhuSink();
   setState('idle');
-  say('Cliquez pour lancer la ligne');
+  say(`${CLICK} pour lancer la ligne`);
   Sound.click();
 }
 
@@ -1597,7 +1706,7 @@ function update(dt) {
         setState('bite');
         addRipple(game.float.x, game.float.y, game.fish.abom ? 3 : 1.6);
         say(game.fish.f.unique ? 'Le lac tout entier se met à trembler… CLIQUEZ !'
-          : game.fish.abom ? 'Quelque chose a mordu… Cliquez !' : 'Ça mord ! Cliquez !');
+          : game.fish.abom ? `Quelque chose a mordu… ${CLICK} !` : `Ça mord ! ${CLICK} !`);
         Sound.bell(game.fish.abom || game.fish.f.unique);
       }
       break;
@@ -1631,7 +1740,7 @@ function update(dt) {
       if (game.t >= SWAP_OUT + SWAP_IN + 0.4) {
         game.swap = null;
         setState('idle');
-        say('Cliquez pour lancer la ligne');
+        say(`${CLICK} pour lancer la ligne`);
         Sound.achievement();
         pushToast({ icon: ICONS.boat, label: `Bateau niveau ${boatLevel()}`, title: boatDef().name,
           sub: `Cannes et caisses jusqu'au niveau ${boatMaxTier(boatLevel())} débloquées`, sound: () => Sound.chestGet() });
@@ -1651,7 +1760,7 @@ function update(dt) {
       game.float.y += (tip.y - game.float.y) * p * 0.15;
       if (game.t >= 1.6) {
         setState('idle');
-        say('Cliquez pour lancer la ligne');
+        say(`${CLICK} pour lancer la ligne`);
       }
       break;
     }
@@ -3076,13 +3185,14 @@ function enterGame() {
   drops.length = 0;
   updateHud();
   setState('idle');
-  say('Cliquez pour lancer la ligne');
+  say(`${CLICK} pour lancer la ligne`);
 }
 
 function showMenu() {
   closePanel();
   abandonCatch();
   if (inGame) writeSave();
+  if (inGame) cloudPush({ silent: true });         // retour au menu : la partie part en ligne
   inGame = false;
   Sound.rain(0);
   resetFishing();
@@ -3596,7 +3706,7 @@ function openService(id) {
 let villageArt = null;
 function renderVillage() {
   $('village-title').textContent = VILLAGE_NAME;
-  $('village-hint').textContent = 'Cliquez sur un bâtiment pour entrer.';
+  $('village-hint').textContent = TOUCH ? 'Touchez un bâtiment pour entrer.' : 'Cliquez sur un bâtiment pour entrer.';
   $('village-spots').innerHTML = VILLAGE_SPOTS.map((s) => {
     const npc = NPC_BY_ID[s.npc];
     const locked = s.npc === 'witch' && !cursesUnlocked();
@@ -4976,6 +5086,7 @@ $('save-file').addEventListener('change', async (e) => {
     const data = validProgress(json?.game === 'lac-tranquille' ? json.save : json);
     if (!data || data.v !== 2) throw new Error('format');
     pendingImport = data;
+    pendingLink = null;
     $('save-summary').textContent = `Sauvegarde trouvée : ${saveSummary(data)}. Elle remplacera la partie actuelle.`;
     $('save-confirm').hidden = false;
     saveMsg('');
@@ -4986,22 +5097,328 @@ $('save-file').addEventListener('change', async (e) => {
   }
 });
 
+$('save-restore').addEventListener('click', () => {
+  const b = readBackup();
+  if (!b) {
+    pendingImport = null;
+    $('save-confirm').hidden = true;
+    saveMsg('Aucune copie de sécurité dans ce navigateur.');
+    return;
+  }
+  pendingImport = b.save;
+  pendingLink = null;
+  const when = b.at ? new Date(b.at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : '?';
+  $('save-summary').textContent = `Copie du ${when}${b.from ? ` (version ${b.from})` : ''} : ${saveSummary(b.save)}. Elle remplacera la partie actuelle.`;
+  $('save-confirm').hidden = false;
+  saveMsg('');
+  Sound.click();
+});
+
 $('save-cancel').addEventListener('click', () => {
   pendingImport = null;
+  pendingLink = null;
   $('save-confirm').hidden = true;
   saveMsg('Import annulé.');
 });
 
 $('save-apply').addEventListener('click', () => {
   if (!pendingImport) return;
+  if (inGame) writeSave();                         // état le plus récent de la partie remplacée…
+  backupSave(readRawSave(), 'remplacée');          // …qui devient la copie de sécurité
   progress = pendingImport;
   pendingImport = null;
+  // partie venue du serveur : cet appareil est lié à ce pseudo ; sinon (fichier, copie de sécurité)
+  // l'ancien lien est retiré, pour ne pas écraser la sauvegarde en ligne avec une autre partie
+  if (pendingLink) cloudSetLink(pendingLink); else if (cloud.link) cloudUnlink();
+  const fromCloud = !!pendingLink;
+  pendingLink = null;
   writeSave();
   $('save-confirm').hidden = true;
   if (inGame) enterGame(); else refreshMenu();
-  saveMsg('Sauvegarde importée !');
+  saveMsg(fromCloud ? 'Partie en ligne chargée : cet appareil est maintenant lié à votre pseudo.' : 'Sauvegarde importée !');
+  renderCloud();
   Sound.chestGet();
 });
+
+// ---------------------------------------------------------------------------
+// Sauvegarde en ligne : pseudo + clé secrète (générée ici, jamais choisie par le joueur)
+// ---------------------------------------------------------------------------
+let pendingLink = null;                            // lien à enregistrer si le joueur valide le chargement
+// https obligatoire, sauf serveur local de développement (wrangler dev)
+const cloudOn = () => /^(https:\/\/[a-z0-9.-]+|http:\/\/(localhost|127\.0\.0\.1))(:\d+)?$/i.test(CLOUD_SAVE.url);
+const cloudMsg = (txt) => { cloud.msg = txt; $('cloud-msg').textContent = txt; };
+const normName = (n) => String(n || '').normalize('NFC').trim().toLocaleLowerCase('fr');
+
+function validLink(x) {
+  if (!isObj(x) || typeof x.name !== 'string' || !LB_NAME_RE.test(x.name) || !CLOUD_KEY_RE.test(x.key)) return null;
+  return { name: x.name, key: x.key, rev: vInt(x.rev, Number.MAX_SAFE_INTEGER), at: vInt(x.at, 1e14) };
+}
+function cloudReadLink() {
+  try { cloud.link = validLink(JSON.parse(localStorage.getItem(CLOUD_LINK_KEY))); } catch { cloud.link = null; }
+}
+function cloudSetLink(link) {
+  cloud.link = validLink(link);
+  cloud.conflict = null;
+  try { localStorage.setItem(CLOUD_LINK_KEY, JSON.stringify(cloud.link)); } catch { /* stockage indisponible */ }
+}
+function cloudUnlink() {
+  cloud.link = null;
+  cloud.conflict = null;
+  cloud.showKey = false;
+  try { localStorage.removeItem(CLOUD_LINK_KEY); } catch { /* idem */ }
+}
+
+// Clé : 20 caractères Crockford base32 tirés avec crypto.getRandomValues (100 bits d'aléa).
+// 256 est un multiple de 32 : « octet & 31 » donne un tirage uniforme.
+const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+function newCloudKey() {
+  const b = crypto.getRandomValues(new Uint8Array(20));
+  const s = [...b].map((x) => CROCKFORD[x & 31]).join('');
+  return `LAC-${s.slice(0, 5)}-${s.slice(5, 10)}-${s.slice(10, 15)}-${s.slice(15)}`;
+}
+// Saisie tolérante : minuscules, espaces, tirets oubliés, O/I/L confondus avec 0/1
+function normKey(txt) {
+  let s = String(txt || '').toUpperCase().replace(/[\s-]/g, '');
+  if (s.startsWith('LAC')) s = s.slice(3);
+  s = s.replace(/O/g, '0').replace(/[IL]/g, '1');
+  if (s.length !== 20) return null;
+  const k = `LAC-${s.slice(0, 5)}-${s.slice(5, 10)}-${s.slice(10, 15)}-${s.slice(15)}`;
+  return CLOUD_KEY_RE.test(k) ? k : null;
+}
+
+async function cloudCall(path, body) {
+  let res;
+  try {
+    res = await fetch(CLOUD_SAVE.url + path, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+      cache: 'no-store', credentials: 'omit', referrerPolicy: 'no-referrer', redirect: 'error',
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch {
+    throw { code: 'reseau', message: 'Serveur injoignable (connexion ?).' };
+  }
+  let data = null;
+  try { data = await res.json(); } catch { /* réponse vide ou illisible */ }
+  if (!res.ok) {
+    const code = typeof data?.error === 'string' ? data.error : 'http';
+    const message = typeof data?.message === 'string' ? data.message.slice(0, 160) : `Erreur du serveur (${res.status}).`;
+    throw { code, message };
+  }
+  if (!isObj(data)) throw { code: 'format', message: 'Réponse du serveur illisible.' };
+  return data;
+}
+
+// La partie à envoyer : celle en cours, sinon celle enregistrée dans le navigateur
+const cloudCurrent = () => (inGame ? progress : loadSave());
+const fmtWhen = (t) => (t ? new Date(t).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : '?');
+
+async function cloudPush({ silent = false, force = false, retried = false } = {}) {
+  if (!cloudOn() || !cloud.link || cloud.busy) return false;
+  const cur = cloudCurrent();
+  if (!cur?.look?.name) return false;
+  // garde-fou : jamais d'envoi d'une partie d'un autre personnage sur ce pseudo
+  if (normName(cur.look.name) !== normName(cloud.link.name)) { cloudUnlink(); renderCloud(); return false; }
+  if (cloud.conflict && !force) return false;
+  cloud.busy = true;
+  cloud.lastPush = Date.now();
+  try {
+    const r = await cloudCall('/v1/save', { name: cloud.link.name, key: cloud.link.key, save: { ...cur, gv: GAME_VERSION }, baseRev: cloud.link.rev });
+    cloudSetLink({ ...cloud.link, rev: vInt(r.rev, Number.MAX_SAFE_INTEGER), at: vInt(r.updatedAt, 1e14) });
+    if (!silent) cloudMsg('Partie envoyée en ligne.');
+    return true;
+  } catch (e) {
+    if (e.code === 'conflit' && !retried) await cloudResolveConflict(cur);
+    else if (!silent || e.code !== 'trop_tot') cloudMsg(e.message);
+    return false;
+  } finally {
+    cloud.busy = false;
+    renderCloud();
+  }
+}
+
+// Conflit : la version en ligne a une révision plus récente que celle connue ici.
+// Si elle n'est pas plus avancée (temps de jeu) que la partie locale, c'est un envoi précédent
+// dont la réponse s'est perdue : on reprend sa révision et on renvoie. Sinon, le joueur choisit.
+async function cloudResolveConflict(cur) {
+  try {
+    const r = await cloudCall('/v1/load', { name: cloud.link.name, key: cloud.link.key });
+    const online = validProgress(r.save);
+    const rev = vInt(r.rev, Number.MAX_SAFE_INTEGER);
+    if (online && online.stats.playTime <= cur.stats.playTime + 1) {
+      cloudSetLink({ ...cloud.link, rev });
+      cloud.busy = false;
+      await cloudPush({ silent: true, retried: true });
+      return;
+    }
+    cloud.conflict = online ? { save: online, rev, at: vInt(r.updatedAt, 1e14) } : null;
+    cloudMsg(online ? '' : 'Sauvegarde en ligne illisible.');
+  } catch (e) { cloudMsg(e.message); }
+}
+
+// Envoi automatique, au plus toutes les CLOUD_AUTO_MS (appelé par writeSave en partie)
+function cloudAuto() {
+  if (cloudOn() && cloud.link && !cloud.conflict && Date.now() - cloud.lastPush > CLOUD_AUTO_MS) cloudPush({ silent: true });
+}
+
+function renderCloud() {
+  const on = cloudOn();
+  $('cloud-box').hidden = !on;
+  if (!on) return;
+  const l = cloud.link;
+  const cur = l ? null : cloudCurrent();
+  $('cloud-status').textContent = l
+    ? `Cet appareil est lié au pseudo « ${l.name} ». Dernier envoi : ${l.at ? fmtWhen(l.at) : 'jamais'}. La partie est envoyée automatiquement toutes les 5 minutes et au retour au menu.`
+    : 'Gardez votre partie en ligne : avec votre pseudo et votre clé, vous la reprenez sur n\'importe quel appareil.';
+  $('cloud-enable').hidden = !!l;
+  $('cloud-enable').disabled = !cur?.look?.name;
+  $('cloud-enable').title = cur?.look?.name ? '' : 'Commencez ou continuez une partie d\'abord.';
+  for (const id of ['cloud-push', 'cloud-showkey', 'cloud-unlink', 'cloud-delete']) $(id).hidden = !l;
+  $('cloud-push').disabled = cloud.busy;
+  $('cloud-showkey').textContent = cloud.showKey ? 'Masquer ma clé' : 'Afficher ma clé';
+  $('cloud-keybox').hidden = !(l && cloud.showKey);
+  $('cloud-key').textContent = l && cloud.showKey ? l.key : '';
+  $('cloud-conflict').hidden = !cloud.conflict;
+  if (cloud.conflict) {
+    $('cloud-conflict-text').textContent = `Une version plus avancée de votre partie existe en ligne (envoyée le ${fmtWhen(cloud.conflict.at)} : ${saveSummary(cloud.conflict.save)}).`;
+  }
+  $('cloud-msg').textContent = cloud.msg;
+}
+
+$('cloud-enable').addEventListener('click', async () => {
+  const cur = cloudCurrent();
+  if (!cur?.look?.name || cloud.busy) return;
+  Sound.click();
+  const link = { name: cur.look.name, key: newCloudKey(), rev: 0, at: 0 };
+  cloud.busy = true;
+  cloudMsg('Création de votre sauvegarde en ligne…');
+  try {
+    const r = await cloudCall('/v1/save', { name: link.name, key: link.key, save: { ...cur, gv: GAME_VERSION }, baseRev: 0 });
+    cloudSetLink({ ...link, rev: vInt(r.rev, Number.MAX_SAFE_INTEGER), at: vInt(r.updatedAt, 1e14) });
+    cloud.lastPush = Date.now();
+    cloud.showKey = true;
+    cloudMsg('Sauvegarde en ligne activée ! Notez votre clé : elle ne pourra pas être retrouvée si vous la perdez.');
+    Sound.chestGet();
+  } catch (e) {
+    cloudMsg(e.code === 'pseudo_pris'
+      ? `Le pseudo « ${link.name} » a déjà une sauvegarde en ligne. Si c'est la vôtre, utilisez « Reprendre une partie en ligne » avec votre clé.`
+      : e.message);
+  } finally {
+    cloud.busy = false;
+    renderCloud();
+  }
+});
+
+$('cloud-push').addEventListener('click', () => { Sound.click(); if (inGame) writeSave(); cloudPush(); });
+
+$('cloud-showkey').addEventListener('click', () => { Sound.click(); cloud.showKey = !cloud.showKey; renderCloud(); });
+
+$('cloud-copy').addEventListener('click', async () => {
+  if (!cloud.link) return;
+  try { await navigator.clipboard.writeText(cloud.link.key); cloudMsg('Clé copiée.'); } catch {
+    // presse-papiers refusé (page locale) : on sélectionne la clé pour une copie manuelle
+    const r = document.createRange();
+    r.selectNodeContents($('cloud-key'));
+    getSelection().removeAllRanges();
+    getSelection().addRange(r);
+    cloudMsg('Clé sélectionnée : copiez-la avec Ctrl+C.');
+  }
+});
+
+let confirmUnlink = false;
+$('cloud-unlink').addEventListener('click', () => {
+  Sound.click();
+  if (!confirmUnlink) {
+    confirmUnlink = true;
+    $('cloud-unlink').textContent = 'Confirmer ? (gardez votre clé !)';
+    setTimeout(() => { confirmUnlink = false; $('cloud-unlink').textContent = 'Délier cet appareil'; }, 4000);
+    return;
+  }
+  confirmUnlink = false;
+  $('cloud-unlink').textContent = 'Délier cet appareil';
+  cloudUnlink();
+  cloudMsg('Appareil délié. La sauvegarde en ligne est conservée.');
+  renderCloud();
+});
+
+let confirmDelete = false;
+$('cloud-delete').addEventListener('click', async () => {
+  Sound.click();
+  if (!cloud.link || cloud.busy) return;
+  if (!confirmDelete) {
+    confirmDelete = true;
+    $('cloud-delete').textContent = 'Confirmer la suppression ?';
+    setTimeout(() => { confirmDelete = false; $('cloud-delete').textContent = 'Supprimer la sauvegarde en ligne'; }, 4000);
+    return;
+  }
+  confirmDelete = false;
+  $('cloud-delete').textContent = 'Supprimer la sauvegarde en ligne';
+  cloud.busy = true;
+  try {
+    await cloudCall('/v1/delete', { name: cloud.link.name, key: cloud.link.key });
+    cloudUnlink();
+    cloudMsg('Sauvegarde en ligne supprimée. Votre partie reste dans ce navigateur.');
+  } catch (e) { cloudMsg(e.message); } finally { cloud.busy = false; renderCloud(); }
+});
+
+$('cloud-resume-open').addEventListener('click', () => {
+  Sound.click();
+  $('cloud-resume').hidden = !$('cloud-resume').hidden;
+  if (!$('cloud-resume').hidden) $('cloud-name').focus();
+});
+
+async function cloudLoadFromForm() {
+  if (cloud.busy) return;
+  const name = $('cloud-name').value.normalize('NFC').trim();
+  const key = normKey($('cloud-keyin').value);
+  if (!LB_NAME_RE.test(name)) { cloudMsg('Pseudo invalide.'); return; }
+  if (!key) { cloudMsg('Clé invalide : elle ressemble à LAC-XXXXX-XXXXX-XXXXX-XXXXX.'); return; }
+  cloud.busy = true;
+  cloudMsg('Chargement…');
+  try {
+    const r = await cloudCall('/v1/load', { name, key });
+    const save = validProgress(r.save);
+    if (!save || save.v !== 2) throw { message: 'Sauvegarde en ligne illisible.' };
+    // le pseudo affiché est celui du personnage (même pseudo, casse éventuellement différente)
+    const display = save.look?.name && normName(save.look.name) === normName(name) ? save.look.name : name;
+    pendingImport = save;
+    pendingLink = { name: display, key, rev: vInt(r.rev, Number.MAX_SAFE_INTEGER), at: vInt(r.updatedAt, 1e14) };
+    $('save-summary').textContent = `Partie en ligne trouvée (envoyée le ${fmtWhen(r.updatedAt)}) : ${saveSummary(save)}. Elle remplacera la partie de ce navigateur.`;
+    $('save-confirm').hidden = false;
+    $('cloud-resume').hidden = true;
+    $('cloud-keyin').value = '';
+    cloudMsg('');
+  } catch (e) {
+    cloudMsg(e.message || 'Chargement impossible.');
+  } finally {
+    cloud.busy = false;
+  }
+}
+$('cloud-load').addEventListener('click', () => { Sound.click(); cloudLoadFromForm(); });
+for (const id of ['cloud-name', 'cloud-keyin']) {
+  $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') cloudLoadFromForm(); });
+}
+
+// Conflit : charger la version en ligne, ou garder celle d'ici (qui écrase la version en ligne)
+$('cloud-take').addEventListener('click', () => {
+  const c = cloud.conflict;
+  if (!c || !cloud.link) return;
+  Sound.click();
+  pendingImport = c.save;
+  pendingLink = { ...cloud.link, rev: c.rev, at: c.at };
+  $('save-summary').textContent = `Version en ligne : ${saveSummary(c.save)}. Elle remplacera la partie de ce navigateur.`;
+  $('save-confirm').hidden = false;
+});
+$('cloud-force').addEventListener('click', async () => {
+  const c = cloud.conflict;
+  if (!c || !cloud.link) return;
+  Sound.click();
+  cloudSetLink({ ...cloud.link, rev: c.rev });
+  await cloudPush({ force: true });
+});
+
+cloudReadLink();
 
 // ---------------------------------------------------------------------------
 // Mode admin
@@ -5112,6 +5529,7 @@ $('admin-pots').addEventListener('click', () => {
 // Options
 // ---------------------------------------------------------------------------
 function syncOptions() {
+  renderCloud();
   const s = Sound.settings;
   $('opt-music').value = Math.round(s.music * 100);
   $('opt-sfx').value = Math.round(s.sfx * 100);
@@ -5149,10 +5567,22 @@ $('opt-sfx').addEventListener('change', () => Sound.bell(false));
 $('opt-mute').addEventListener('change', (e) => { Sound.set('muted', e.target.checked); syncOptions(); });
 $('opt-track').addEventListener('change', (e) => { Sound.init(); Sound.chooseTrack(e.target.value, $('opt-loop').checked); syncOptions(); });
 $('opt-loop').addEventListener('change', (e) => { Sound.chooseTrack($('opt-track').value, e.target.checked); syncOptions(); });
+// Plein écran ; sur mobile (Android), on bloque aussi l'écran à l'horizontale quand c'est permis
+function enterFullscreen() {
+  const p = document.documentElement.requestFullscreen?.();
+  if (!p) return;
+  p.then(() => screen.orientation?.lock?.('landscape')?.catch(() => {})).catch(() => {});
+}
 $('opt-fullscreen').addEventListener('click', () => {
   if (document.fullscreenElement) document.exitFullscreen?.();
-  else document.documentElement.requestFullscreen?.().catch(() => {});
+  else enterFullscreen();
 });
+// écran « tournez votre téléphone » : le bouton n'apparaît que si le navigateur gère le plein écran
+// (Android ; pas Safari sur iPhone)
+$('rotate-fs').hidden = !document.documentElement.requestFullscreen;
+$('rotate-fs').addEventListener('click', enterFullscreen);
+// appui long sur le lac (remontée de la ligne) : pas de menu contextuel ni de loupe
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 document.addEventListener('fullscreenchange', syncOptions);
 
 // ===========================================================================
@@ -5241,11 +5671,19 @@ window.addEventListener('keydown', (e) => {
 window.addEventListener('beforeunload', () => { if (inGame) writeSave(); });
 
 // Toute l'interface est en "em" : on ajuste la taille de base à celle de l'écran.
+// Petit écran (téléphone à l'horizontale, moins de 500 px de haut) : mode « compact », avec un texte
+// plus grand que la simple mise à l'échelle (≈ 11 px au lieu de 8) et une mise en page resserrée.
+const COMPACT_MAX_H = 500;
 function fitUi() {
-  const w = $('game').getBoundingClientRect().width;
-  $('game').style.fontSize = `${Math.max(9, w / 80)}px`;
+  const r = $('game').getBoundingClientRect();
+  if (!r.width) return;                            // jeu masqué (téléphone à la verticale)
+  const compact = r.height < COMPACT_MAX_H;
+  $('game').classList.toggle('compact', compact);
+  $('game').style.fontSize = `${compact ? Math.max(10.5, Math.min(12, r.height / 34)) : Math.max(9, r.width / 80)}px`;
 }
 window.addEventListener('resize', fitUi);
+window.addEventListener('orientationchange', () => setTimeout(fitUi, 250));
+window.visualViewport?.addEventListener('resize', fitUi);
 
 // ===========================================================================
 // Démarrage & boucle

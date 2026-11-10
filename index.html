@@ -2,16 +2,27 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0e1c">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <!-- Politique de sécurité : scripts, polices et styles uniquement locaux ; images locales ou générées
-       (data:) ; seule connexion externe autorisée : le classement sur GitHub. 'unsafe-inline' ne concerne
+       (data:) ; connexions externes autorisées : le classement sur GitHub et la sauvegarde en ligne
+       (Worker Cloudflare, voir server/cloud-save/). 'unsafe-inline' ne concerne
        que les styles (attributs style="" générés par le jeu), jamais les scripts. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src https://raw.githubusercontent.com; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src https://raw.githubusercontent.com https://lac-tranquille-saves.cloudflare-blissful748.workers.dev; base-uri 'none'; form-action 'none'; object-src 'none'">
   <meta name="referrer" content="no-referrer">
   <title>Lac Tranquille</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <!-- Téléphone tenu à la verticale (affiché par style.css uniquement) -->
+  <div id="rotate">
+    <div class="rotate-phone"></div>
+    <p>Tournez votre téléphone à l'horizontale pour pêcher.</p>
+    <button class="btn" id="rotate-fs" hidden>Plein écran</button>
+  </div>
   <div id="game">
     <canvas id="canvas" width="480" height="270"></canvas>
 
@@ -214,7 +225,7 @@
           <button class="btn close" data-close>Fermer</button>
         </header>
         <p class="panel-hint">Jusqu'à 2 caisses à l'eau. Elles se remplissent avec le temps, même jeu fermé.
-          Une caisse pleine affiche un « ! » : cliquez sur la caisse dans le lac pour la relever.</p>
+          Une caisse pleine affiche un « ! » : appuyez sur la caisse dans le lac pour la relever.</p>
         <div id="crates-list" class="crates"></div>
       </div>
 
@@ -369,11 +380,12 @@
         </div>
         <div class="save-box">
           <h3>Sauvegarde</h3>
-          <p class="save-hint">La partie est enregistrée dans ce navigateur. Exportez-la dans un fichier pour la garder en lieu sûr ou la transférer.</p>
+          <p class="save-hint">La partie est enregistrée dans ce navigateur. Exportez-la dans un fichier pour la garder en lieu sûr ou la transférer. Une copie de sécurité est faite automatiquement avant chaque mise à jour du jeu et avant une nouvelle partie.</p>
           <div class="admin-buttons">
             <button class="btn" id="save-export">Exporter la sauvegarde</button>
             <button class="btn" id="save-import">Importer une sauvegarde</button>
             <input type="file" id="save-file" accept=".json,application/json" hidden>
+            <button class="btn" id="save-restore" title="Copie faite automatiquement avant une mise à jour du jeu ou une nouvelle partie">Restaurer la copie de sécurité</button>
           </div>
           <div id="save-confirm" class="save-confirm" hidden>
             <p id="save-summary"></p>
@@ -383,6 +395,44 @@
             </div>
           </div>
           <p class="admin-hint" id="save-msg"></p>
+          <div class="cloud-box" id="cloud-box" hidden>
+            <h3>Sauvegarde en ligne</h3>
+            <p class="save-hint" id="cloud-status"></p>
+            <div class="admin-buttons">
+              <button class="btn" id="cloud-enable">Activer la sauvegarde en ligne</button>
+              <button class="btn" id="cloud-push" hidden>Envoyer maintenant</button>
+              <button class="btn" id="cloud-showkey" hidden>Afficher ma clé</button>
+              <button class="btn" id="cloud-resume-open">Reprendre une partie en ligne</button>
+            </div>
+            <div id="cloud-keybox" class="save-confirm" hidden>
+              <p>Votre clé personnelle. Notez-la en lieu sûr : avec votre pseudo, elle permet de reprendre la partie sur n'importe quel appareil. Elle ne peut pas être retrouvée en cas de perte, et ne doit être donnée à personne.</p>
+              <div class="cloud-keyrow">
+                <code class="cloud-key" id="cloud-key"></code>
+                <button class="btn" id="cloud-copy">Copier</button>
+              </div>
+            </div>
+            <div id="cloud-resume" class="save-confirm" hidden>
+              <div class="cloud-form">
+                <label for="cloud-name">Pseudo</label>
+                <input type="text" id="cloud-name" maxlength="16" autocomplete="off" spellcheck="false">
+                <label for="cloud-keyin">Clé</label>
+                <input type="text" id="cloud-keyin" maxlength="40" autocomplete="off" spellcheck="false" placeholder="LAC-XXXXX-XXXXX-XXXXX-XXXXX">
+              </div>
+              <div class="admin-buttons"><button class="btn" id="cloud-load">Charger ma partie</button></div>
+            </div>
+            <div id="cloud-conflict" class="save-confirm" hidden>
+              <p id="cloud-conflict-text"></p>
+              <div class="admin-buttons">
+                <button class="btn" id="cloud-take">Charger la version en ligne</button>
+                <button class="btn" id="cloud-force">Garder celle de cet appareil</button>
+              </div>
+            </div>
+            <div class="admin-buttons cloud-danger">
+              <button class="btn" id="cloud-unlink" hidden>Délier cet appareil</button>
+              <button class="btn" id="cloud-delete" hidden>Supprimer la sauvegarde en ligne</button>
+            </div>
+            <p class="admin-hint" id="cloud-msg"></p>
+          </div>
         </div>
         <div class="admin-box" id="admin-box" hidden>
           <div class="admin-tag">MODE ADMIN</div>
