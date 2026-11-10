@@ -26,6 +26,9 @@ const FX = {
   legend:   { label: (v) => `Légendaires ×${numTxt(v)}`,           value: 300, mul: true },
   abomMul:  { label: (v) => `Abominations ×${numTxt(v)}`,          value: 300, mul: true },
   cthulhu:  { label: (v) => `Grand Ancien ×${numTxt(v)}`,          value: 250, mul: true },
+  // contre le Grand Ancien uniquement : il se débat moins, et la barre verte est plus large
+  cthVigor: { label: (v) => `Vigueur du Grand Ancien ${sgn(v, true)}${pctTxt(Math.abs(v))}`, value: 1200 },
+  cthBar:   { label: (v) => `Barre contre le Grand Ancien ${sgn(v)}${pctTxt(Math.abs(v))}`, value: 900 },
   vigorMul: { label: (v) => `Poissons ${v >= 1 ? '+' : '−'}${pctTxt(Math.abs(v - 1))} vigoureux`, value: 0, mul: true },
 };
 const fxLines = (fx) => Object.entries(fx).map(([k, v]) => FX[k].label(v));
@@ -46,6 +49,8 @@ const FX_CMP = {
   legend:  { name: 'Légendaires',         mul: true },
   abomMul: { name: 'Abominations',        mul: true },
   cthulhu: { name: 'Grand Ancien',        mul: true },
+  cthVigor: { name: 'Vigueur du Grand Ancien', fmt: pctTxt, inv: true },
+  cthBar:  { name: 'Barre contre le Grand Ancien', fmt: pctTxt },
 };
 
 // Différence d'effets si l'on remplace oldFx par newFx : [{ text, good }]
@@ -185,6 +190,18 @@ const ITEMS = [
     desc: "Grosse comme un œuf, elle reflète un ciel qui n'est pas le nôtre." },
   { id: 'a_necro',    slot: 'acc', tier: 4, icon: 'necro',    name: 'Necronomicon',             color: '#4a2a1e', accent: '#7af0a0', fx: { abom: 0.05, abomMul: 1.5, cthulhu: 2, rare: 0.3 },
     desc: "Le livre interdit de l'Arabe fou Abdul Alhazred, relié d'une peau qui n'est pas du cuir. « N'est pas mort ce qui à jamais dort… »" },
+
+  // --- accessoires contre le Grand Ancien (1.7.0) : l'attirer, l'apaiser, le remonter
+  { id: 'a_cloche',   slot: 'acc', tier: 2, icon: 'bell',     name: 'Cloche de brume',          color: '#b87a3a', accent: '#e8d8b0', fx: { cthVigor: 0.15 },
+    desc: "Une petite cloche de bouée, verte de vert-de-gris. Son tintement étouffé apaise ce qui dort en dessous." },
+  { id: 'a_amulette', slot: 'acc', tier: 2, icon: 'deepamulet', name: 'Amulette des profondeurs', color: '#2e6a6a', accent: '#a8f0d8', fx: { cthulhu: 1.5, cthBar: 0.1 },
+    desc: "Une pierre noire percée, pendue à un cordon de varech. Elle tire doucement vers le fond du lac." },
+  { id: 'a_ancre',    slot: 'acc', tier: 3, icon: 'anchor',   name: 'Ancre runique',            color: '#6a7480', accent: '#7ad0ff', fx: { cthBar: 0.25, vigor: 0.05 },
+    desc: "Couverte de signes qu'aucun forgeron du village ne sait lire. Elle ne coule pas : elle retient." },
+  { id: 'a_idole',    slot: 'acc', tier: 3, icon: 'idol',     name: 'Idole de pierre verte',    color: '#3e7a4a', accent: '#d8f070', fx: { cthulhu: 2, cthVigor: 0.1, abom: 0.01 },
+    desc: "Une petite statue accroupie, ailée, aux yeux fermés. Mieux vaut qu'ils le restent." },
+  { id: 'a_signe',    slot: 'acc', tier: 4, icon: 'eldersign', name: 'Signe des Anciens',      color: '#8a8a80', accent: '#ffb040', fx: { cthVigor: 0.25, cthBar: 0.3, cthulhu: 1.5 },
+    desc: "Une étoile à cinq branches gravée dans une pierre grise, avec un œil de flamme en son centre. Ce qui dort sous le lac la craint." },
 ];
 const ITEM_BY_ID = Object.fromEntries(ITEMS.map((it) => [it.id, it]));
 const ITEM_TIER_WEIGHT = [40, 24, 12, 4, 1.2];

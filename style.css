@@ -438,6 +438,35 @@ button { font-family: inherit; color: #fff; text-shadow: var(--outline); cursor:
 .abom-tag { font-size: 0.85em; letter-spacing: 0.2em; text-transform: uppercase; color: #7a2a8a; }
 
 .fish-canvas { display: block; width: 62%; margin: 0.3em auto; aspect-ratio: 100 / 72; }
+/* carnet des objets : icône agrandie ; jamais obtenu = silhouette noire */
+.book-item { display: flex; justify-content: center; margin: 0.2em 0 0.3em; }
+.book-item-icon { width: 4.5em; height: 4.5em; image-rendering: pixelated; }
+.book-item-icon.silhouette { filter: brightness(0); opacity: 0.7; }
+.item-page .records { font-size: 0.95em; }
+.item-page .records dd { line-height: 1.3; }
+.unknown .records dd.keep { color: inherit; letter-spacing: 0; }
+.tier-count { list-style: none; padding: 0; margin: 0.4em 0 0.8em; display: grid; gap: 0.25em; }
+.tier-count .rarity { display: inline-block; min-width: 7em; text-align: center; }
+.page-blank { height: 100%; }
+.crate-slot.locked { opacity: 0.55; }
+/* gestion des caisses : message, et liste des caisses possédées (revente) */
+.crates-msg { margin: 0 0 0.5em; min-height: 1.2em; color: #ffd84a; font-size: 0.95em; }
+.crates-msg:empty { display: none; }
+.crate-owned { grid-column: 1 / -1; padding: 0.6em 0.8em; background: rgba(20, 28, 80, 0.55); border-radius: 0.3em; }
+.crate-owned h3 { margin: 0 0 0.4em; font-size: 1.1em; color: #ffe56a; font-weight: 600; }
+.crate-owned-row { display: grid; grid-template-columns: 2em 1fr auto auto; gap: 0.6em; align-items: center; padding: 0.25em 0; border-top: 0.08em solid rgba(131, 148, 236, 0.25); }
+.crate-owned-row:first-of-type { border-top: 0; }
+.crate-owned-row img { width: 2em; height: 2em; image-rendering: pixelated; }
+.crate-owned-row small { opacity: 0.75; }
+.crate-owned-row .btn.confirm { background: #a8402a; }
+/* gain d'une vente : « +X » vert à côté de l'argent, 5 s */
+.gain { margin-left: 0.45em; color: #7cf08a; font-weight: 600; white-space: nowrap; }
+.gain.pop { animation: gain-pop 0.5s ease-out, gain-fade 5s linear forwards; }
+@keyframes gain-pop { 0% { transform: translateY(0.4em) scale(0.7); opacity: 0; } 60% { transform: translateY(-0.15em) scale(1.15); opacity: 1; } 100% { transform: none; } }
+@keyframes gain-fade { 0%, 80% { opacity: 1; } 100% { opacity: 0; } }
+.gain { display: inline-block; }
+.fm-purse { margin-left: auto; }
+#fm-index { margin-left: 0.4em; }
 
 .records { display: grid; grid-template-columns: auto 1fr; gap: 0.2em 1em; margin: 0.4em 0; font-size: 1.05em; }
 .records dt { opacity: 0.7; }
@@ -757,6 +786,7 @@ button { font-family: inherit; color: #fff; text-shadow: var(--outline); cursor:
 .lb-rank { font-size: 1.3em; color: #ffe56a; text-align: center; }
 .lb-name small { margin-left: 0.6em; font-size: 0.7em; opacity: 0.65; }
 .lb-val { white-space: nowrap; }
+.lb-sub { opacity: 0.75; font-size: 0.85em; }
 .lb-val img { width: 1em; height: 1em; vertical-align: -0.12em; }
 .lb-empty { text-align: center; font-size: 1.2em; opacity: 0.85; margin: 3em 1em; }
 .lb-foot { display: flex; align-items: center; gap: 0.6em; padding-top: 0.6em; }
@@ -887,6 +917,27 @@ img.ghost { opacity: 0.45; }
   animation: notify-pulse 1.4s ease-in-out infinite;
 }
 @keyframes notify-pulse { 50% { transform: scale(1.35); } }
+/* pastille « ! » : un nouvel objet attend dans l'inventaire */
+.hud-icon.bang::after {
+  content: '!';
+  position: absolute;
+  top: -0.35em;
+  right: -0.3em;
+  width: 1.2em;
+  height: 1.2em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1em;
+  font-weight: 700;
+  line-height: 1;
+  color: #2a1a00;
+  text-shadow: none;
+  background: #ffd84a;
+  border: 0.12em solid #5a3a00;
+  border-radius: 50%;
+  animation: notify-pulse 1.4s ease-in-out infinite;
+}
 
 #panel-curses { background: rgba(30, 18, 52, 0.95); box-shadow: inset 0 0 0 0.14em #7a4ac8, 0 0.3em 0 rgba(0, 0, 0, 0.35); }
 .witch-talk { display: flex; align-items: center; gap: 1em; margin-bottom: 0.9em; }

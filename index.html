@@ -16,9 +16,9 @@
   <!-- Version du jeu : identique à GAME_VERSION (game.js) et au « ?v= » des fichiers ci-dessous.
        Le « ?v= » change à chaque version : le navigateur recharge alors styles et scripts au lieu
        de garder d'anciennes copies en cache (GitHub Pages : cache de 10 minutes). -->
-  <meta name="game-version" content="1.6.0">
+  <meta name="game-version" content="1.7.0">
   <title>Lac Tranquille</title>
-  <link rel="stylesheet" href="style.css?v=1.6.0">
+  <link rel="stylesheet" href="style.css?v=1.7.0">
 </head>
 <body>
   <!-- Téléphone tenu à la verticale (affiché par style.css uniquement) -->
@@ -35,7 +35,7 @@
       <div class="hud-left">
         <div class="hud-stats box">
           <div class="hud-name" id="hud-name"></div>
-          <div class="money"><img class="coin" data-icon="coin" alt=""> <span id="hud-money">0</span></div>
+          <div class="money"><img class="coin" data-icon="coin" alt=""> <span id="hud-money">0</span><span class="gain" id="hud-gain" hidden></span></div>
           <div>Bourriche : <span id="hud-count">0</span></div>
           <div>Appât : <span id="hud-bait">—</span></div>
           <div class="admin-tag" id="hud-admin" hidden>MODE ADMIN</div>
@@ -51,6 +51,7 @@
         <button class="hud-icon" data-open="crates" title="Raccourci : K"><img data-icon="crate" alt=""><span>Caisses</span></button>
         <button class="hud-icon" data-open="achievements" title="Raccourci : T"><img data-icon="trophy" alt=""><span>Succès</span></button>
         <button class="hud-icon" data-open="sheet" title="Raccourci : P"><img data-icon="profile" alt=""><span>Profil</span></button>
+        <button class="hud-icon" id="btn-inv" title="Raccourci : I"><img data-icon="bag" alt=""><span>Inventaire</span></button>
         <button class="hud-icon" id="btn-save" title="Sauvegarder la partie (et l'envoyer en ligne) — raccourci : S"><img data-icon="save" alt=""><span>Sauver</span></button>
         <button class="hud-icon" id="hud-options" data-open="options" title="Raccourci : O"><img data-icon="options" alt=""><span>Options</span></button>
         <button class="hud-icon" id="btn-menu" title="Raccourci : Échap"><img data-icon="menu" alt=""><span>Menu</span></button>
@@ -138,6 +139,8 @@
         <div class="book-nav">
           <button class="btn" data-section="fish">Poissons</button>
           <button class="btn" data-section="crust">Crustacés</button>
+          <button class="btn" data-section="items">Objets</button>
+          <button class="btn" data-section="acc">Accessoires</button>
           <span class="nav-sep"></span>
           <button class="btn" id="book-prev">‹ Précédent</button>
           <span id="book-pos"></span>
@@ -251,8 +254,9 @@
           <h2><img data-icon="crate" alt="">Caisses à crustacés</h2>
           <button class="btn close" data-close>Fermer</button>
         </header>
-        <p class="panel-hint">Jusqu'à 2 caisses à l'eau. Elles se remplissent avec le temps, même jeu fermé.
+        <p class="panel-hint"><span id="crates-hint"></span> Elles se remplissent avec le temps, même jeu fermé.
           Une caisse pleine affiche un « ! » : appuyez sur la caisse dans le lac pour la relever.</p>
+        <p class="crates-msg" id="crates-msg" aria-live="polite"></p>
         <div id="crates-list" class="crates"></div>
       </div>
 
@@ -266,7 +270,7 @@
         <div id="pot-list" class="pot-list"></div>
         <div class="pot-actions">
           <button class="btn" id="pot-redeploy">Remettre à l'eau</button>
-          <button class="btn" data-close>Fermer</button>
+          <button class="btn" id="pot-close">Gérer mes caisses</button>
         </div>
       </div>
 
@@ -333,6 +337,7 @@
       <div id="panel-fishmonger" class="panel-wrap panel box" hidden>
         <header>
           <h2><img data-icon="book" alt="">Poissonnerie</h2>
+          <div class="money fm-purse" title="Votre argent"><img class="coin" data-icon="coin" alt=""> <span id="fm-purse"></span><span class="gain" id="fm-gain" hidden></span></div>
           <div class="money" id="fm-index"></div>
           <button class="btn close" data-open="village">‹ Village</button>
           <button class="btn" data-close>Fermer</button>
@@ -497,11 +502,11 @@
     </div>
   </div>
 
-  <script src="audio.js?v=1.6.0"></script>
-  <script src="pixel.js?v=1.6.0"></script>
-  <script src="world.js?v=1.6.0"></script>
-  <script src="character.js?v=1.6.0"></script>
-  <script src="village.js?v=1.6.0"></script>
-  <script src="game.js?v=1.6.0"></script>
+  <script src="audio.js?v=1.7.0"></script>
+  <script src="pixel.js?v=1.7.0"></script>
+  <script src="world.js?v=1.7.0"></script>
+  <script src="character.js?v=1.7.0"></script>
+  <script src="village.js?v=1.7.0"></script>
+  <script src="game.js?v=1.7.0"></script>
 </body>
 </html>

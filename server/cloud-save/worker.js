@@ -12,6 +12,7 @@
 //   POST /v1/score        { name, key, fish }   recalcule le score depuis la sauvegarde en ligne
 //                         (gardée pour les jeux 1.5.x, qui l'appellent encore)
 //   GET  /v1/leaderboard?cat=earned             les 50 premiers d'une catégorie
+//   GET  /v1/leaderboard.svg?cat=earned         les 10 premiers, en image SVG (README du dépôt GitHub)
 //
 // Sécurité (cf. CLAUDE.md) : schéma strict, tailles bornées, requêtes SQL paramétrées,
 // limitation du débit (binding RATE_LIMITER), journaux sans données personnelles.
@@ -32,7 +33,7 @@ const MIN_WRITE_GAP_MS = 20 * 1000; // une écriture toutes les 20 s au plus par
 const SAVE_FIELDS = new Set([
   'v', 'gv', 'money', 'rod', 'rods', 'bait', 'baits', 'dex', 'potsOwned', 'pots', 'achievements', 'look',
   'boat', 'items', 'equip', 'itemSeq', 'clock', 'weather', 'curse', 'catches', 'bank', 'market', 'bric',
-  'met', 'stats', 'tuto',
+  'met', 'stats', 'tuto', 'seen',
 ]);
 const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 const LIMITS = { depth: 8, nodes: 20000, keys: 400, array: 1000, string: 200, key: 64, number: 1e15 };
@@ -323,6 +324,78 @@ async function routeLeaderboard(request, env) {
   };
 }
 
+// Classement en image SVG, pour le README du dépôt GitHub (une image n'exécute aucun script : c'est
+// la seule façon d'afficher des données à jour dans un README). GitHub la recopie via son proxy
+// d'images et la garde quelques minutes en cache. Les noms de poissons n'y figurent pas (le carnet du
+// visiteur est inconnu : pas de divulgation), et tout texte est échappé pour le XML.
+const SVG_CATS = {
+  earned: { title: 'Pièces gagnées', col: 'earned', fmt: (r) => `${fmtFr(r.earned)} pièces` },
+  heaviest: { title: 'Plus grosse prise', col: 'heaviest_kg', fmt: (r) => `${String(r.heaviest_kg.toFixed(2)).replace('.', ',')} kg` },
+  dex: { title: 'Carnet', col: 'dex', fmt: (r) => `${r.dex} entrées` },
+  days: { title: 'Jours au lac', col: 'days', fmt: (r) => `${fmtFr(r.days)} jour${r.days > 1 ? 's' : ''} · ${fmtHMS(r.play_time)}` },
+  boat: { title: 'Bateau', col: 'boat', fmt: (r) => `niveau ${r.boat}` },
+  cthulhu: { title: 'Grand Ancien', col: 'cthulhu', fmt: (r) => `${fmtFr(r.cthulhu)} fois` },
+};
+const SVG_ROWS = 10;
+const fmtFr = (n) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+// même format que fmtHMS() de game.js : « 3 h 07 min 42 s »
+function fmtHMS(total) {
+  const s = Math.max(0, Math.floor(Number(total) || 0));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  const pad = (n) => String(n).padStart(2, '0');
+  return h > 0 ? `${h} h ${pad(m)} min ${pad(sec)} s` : m > 0 ? `${m} min ${pad(sec)} s` : `${sec} s`;
+}
+const xmlEsc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[c]));
+
+async function routeLeaderboardSvg(request, env) {
+  const cat = new URL(request.url).searchParams.get('cat') || 'earned';
+  if (!Object.hasOwn(SVG_CATS, cat)) fail(400, 'categorie', 'Catégorie inconnue.');
+  const c = SVG_CATS[cat];
+  let rows = [], total = 0;
+  try {
+    rows = (await env.DB.prepare(
+      `SELECT display, earned, dex, days, boat, cthulhu, heaviest_kg, play_time FROM scores WHERE ${c.col} > 0
+       ORDER BY ${c.col} DESC, updated_at ASC LIMIT ?1`,
+    ).bind(SVG_ROWS).all()).results || [];
+    total = (await env.DB.prepare('SELECT COUNT(*) AS n FROM scores').first())?.n || 0;
+  } catch { /* table absente : image « classement vide » */ }
+  const W = 560, ROW = 30, TOP = 74;
+  const H = TOP + Math.max(1, rows.length) * ROW + 34;
+  const medal = ['#ffd84a', '#d8e0e8', '#d0884a'];
+  const lines = rows.map((r, i) => {
+    const y = TOP + i * ROW;
+    return `<rect x="16" y="${y}" width="${W - 32}" height="${ROW - 4}" rx="5" fill="${i % 2 ? '#2a3a8a' : '#243078'}"${i < 3 ? ` stroke="${medal[i]}" stroke-width="1.5"` : ''}/>
+    <text x="38" y="${y + 18}" class="rank" text-anchor="middle">${i + 1}</text>
+    <text x="64" y="${y + 18}" class="name">${xmlEsc(r.display)}</text>
+    <text x="${W - 30}" y="${y + 18}" class="val" text-anchor="end">${xmlEsc(c.fmt(r))}</text>`;
+  }).join('\n');
+  const empty = rows.length ? '' : `<text x="${W / 2}" y="${TOP + 19}" class="name" text-anchor="middle">Personne au classement pour le moment. Soyez le premier !</text>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Classement Lac Tranquille : ${xmlEsc(c.title)}">
+  <style>
+    text { font-family: 'Courier New', Courier, monospace; }
+    .title { font-size: 22px; font-weight: 700; fill: #ffd84a; }
+    .sub { font-size: 13px; fill: #c8d0f0; }
+    .rank { font-size: 15px; font-weight: 700; fill: #ffe56a; }
+    .name { font-size: 15px; font-weight: 700; fill: #ffffff; }
+    .val { font-size: 15px; fill: #e8ecff; }
+  </style>
+  <rect width="${W}" height="${H}" rx="10" fill="#1a2464" stroke="#0e1438" stroke-width="4"/>
+  <rect x="4" y="4" width="${W - 8}" height="${H - 8}" rx="8" fill="none" stroke="#5d6fd0" stroke-width="2"/>
+  <text x="20" y="38" class="title">Lac Tranquille · ${xmlEsc(c.title)}</text>
+  <text x="20" y="58" class="sub">Top ${SVG_ROWS} · ${fmtFr(total)} joueur${total > 1 ? 's' : ''} au classement</text>
+  ${lines}${empty}
+  <text x="${W - 20}" y="${H - 14}" class="sub" text-anchor="end">Mis à jour toutes les 5 minutes environ</text>
+</svg>`;
+  return new Response(svg, {
+    headers: {
+      'content-type': 'image/svg+xml; charset=utf-8',
+      'cache-control': 'public, max-age=300',            // 5 minutes : le proxy d'images de GitHub s'y fie
+      'x-content-type-options': 'nosniff',
+      'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'",
+    },
+  });
+}
+
 // --- Routes ---------------------------------------------------------------------------------
 async function routeSave(request, env) {
   const body = await readJson(request, BODY_MAX);
@@ -395,9 +468,12 @@ async function routeDelete(request, env) {
 
 const ROUTES = {
   '/v1/save': routeSave, '/v1/load': routeLoad, '/v1/delete': routeDelete, '/v1/score': routeScore,
-  '/v1/leaderboard': routeLeaderboard,
+  '/v1/leaderboard': routeLeaderboard, '/v1/leaderboard.svg': routeLeaderboardSvg,
 };
-const GET_ROUTES = new Set(['/v1/leaderboard']);   // lecture seule ; toutes les autres routes : POST
+const GET_ROUTES = new Set(['/v1/leaderboard', '/v1/leaderboard.svg']);   // lecture seule ; les autres : POST
+// Image du README : toutes les vues passent par le proxy de GitHub (quelques adresses IP partagées),
+// la limite par IP la bloquerait ; elle est en lecture seule, bornée à 10 lignes, et mise en cache 5 min.
+const NO_RATE_LIMIT = new Set(['/v1/leaderboard.svg']);
 
 export default {
   async fetch(request, env) {
@@ -409,8 +485,9 @@ export default {
       if (!route) fail(404, 'route', 'Route inconnue.');
       const method = GET_ROUTES.has(url.pathname) ? 'GET' : 'POST';
       if (request.method !== method) fail(405, 'methode', `${method} attendu.`);
-      await rateLimit(env, request.headers.get('cf-connecting-ip') || 'local');
-      return json(200, await route(request, env), cors);
+      if (!NO_RATE_LIMIT.has(url.pathname)) await rateLimit(env, request.headers.get('cf-connecting-ip') || 'local');
+      const res = await route(request, env);
+      return res instanceof Response ? res : json(200, res, cors);
     } catch (e) {
       if (e instanceof HttpError) return json(e.status, { error: e.code, message: e.message }, cors);
       // journal sans donnée personnelle : ni pseudo, ni clé, ni IP, ni corps de requête

@@ -16,6 +16,48 @@ La partie est enregistrée **dans le navigateur, pour une adresse donnée**. Une
 
 ---
 
+## 1.7.0 — Contre le Grand Ancien, carnet des trouvailles (10/11/2026)
+
+✅ **Sauvegarde conservée.** Les objets déjà dans votre inventaire sont comptés comme découverts dans le carnet. Ceux que vous avez vendus avant cette version ne peuvent pas l'être : le jeu ne les retenait pas.
+
+### Nouveautés
+- **5 accessoires contre le Grand Ancien**, à trouver sur les poissons et dans les caisses :
+
+  | Accessoire | Rareté | Effets |
+  |---|---|---|
+  | Cloche de brume | Rare | Vigueur du Grand Ancien −15 % |
+  | Amulette des profondeurs | Rare | Grand Ancien ×1,5 · Barre contre le Grand Ancien +10 % |
+  | Ancre runique | Épique | Barre contre le Grand Ancien +25 % · Vigueur des poissons −5 % |
+  | Idole de pierre verte | Épique | Grand Ancien ×2 · Vigueur du Grand Ancien −10 % · Abomination +1 % |
+  | Signe des Anciens | Légendaire | Vigueur du Grand Ancien −25 % · Barre contre le Grand Ancien +30 % · Grand Ancien ×1,5 |
+
+  - **Deux nouveaux effets**, qui ne jouent que pendant le combat contre le Grand Ancien. *Vigueur du Grand Ancien* le rend moins agité, dans la limite de −60 %. *Barre contre le Grand Ancien* élargit la barre verte.
+- **Carnet : sections « Objets » et « Accessoires »**, présentées comme les poissons, deux par double page.
+  - Un objet jamais obtenu apparaît en **silhouette noire**, avec ses caractéristiques en « ???? ». Son type et sa rareté restent visibles.
+  - Chaque page indique s'il existe **mieux dans la même catégorie** (combien d'objets plus rares, et combien sont déjà découverts).
+  - La couverture compte les découvertes par rareté, et le sommaire mène directement à chaque objet.
+- **Classement** : dans « Plus grosse prise », le nom du poisson d'un autre joueur s'affiche en « ???? » tant que vous ne l'avez pas vous-même dans votre carnet. Cela vaut aussi pour les abominations.
+- **Bouton « Inventaire »** dans la barre d'icônes (raccourci : I) : il ouvre directement l'onglet Inventaire du profil.
+  - Un **« ! »** jaune s'affiche dessus quand un nouvel objet tombe, sur un poisson ou dans une caisse, et disparaît dès qu'on ouvre l'inventaire. Il reste affiché après un rechargement de la page.
+- **Caisses : une par niveau de bateau**, de 1 caisse (barque) à 5 caisses (Navire Abysse-X), avec 3 nouveaux emplacements sur le lac.
+  - Les emplacements pas encore débloqués apparaissent verrouillés, avec le niveau de bateau qu'il leur faut.
+  - ⚠️ Avec la barque (niveau 1), on passe de 2 caisses à 1. Une caisse déjà posée sur le 2ᵉ emplacement n'est pas perdue : elle se relève normalement, mais ne peut être reposée qu'à partir du bateau de niveau 2.
+- **Classement, « Jours au lac »** : le temps de jeu exact (heures, minutes, secondes) s'affiche à côté du nombre de jours.
+- **README du dépôt GitHub** : il présente le jeu et affiche le classement en direct. Le serveur génère l'image du top 10, rafraîchie toutes les 5 minutes environ.
+- **Poissonnerie** : votre argent est affiché dans le panneau. Après une vente, un « +X » vert apparaît à côté pendant 5 secondes, dans le panneau et dans la barre du haut. Des ventes rapprochées s'additionnent.
+- **Revente des caisses** : la liste « Mes caisses », en bas de l'écran des caisses, permet de revendre les anciennes pour 40 % de leur prix d'achat. Il faut confirmer d'un second clic, et une caisse à l'eau ne peut pas être revendue.
+- **Meilleure caisse par défaut** : chaque emplacement libre propose la meilleure caisse disponible, en tenant compte des autres emplacements. Un choix fait à la main est conservé.
+- **Vérification au lancement** : si la caisse choisie n'est plus disponible au moment de la mettre à l'eau (déjà lancée depuis un autre emplacement préparé), ou si l'appât est épuisé, rien n'est lancé. Un message l'explique, et un autre choix est proposé.
+- **Caisse relevée** : si on ne la remet pas à l'eau, « Gérer mes caisses » (ou Échap) ramène à l'écran des caisses, pour en poser une autre ou changer d'appât.
+
+### Corrections
+- **Cinématique d'ouverture :** dans les deux dernières scènes (le lac), la barque et le personnage étaient cachés derrière le texte. Le lac est maintenant cadré plus haut.
+- **« Revoir l'introduction » pendant un tutoriel :** la bulle du tutoriel ne reste plus affichée par-dessus la cinématique.
+
+> **Mise à jour du serveur nécessaire, avant de publier le jeu.** La sauvegarde a un nouveau champ (`seen`, objets découverts), que le serveur doit connaître : sinon, les sauvegardes en ligne des joueurs en 1.7.0 seraient refusées. Collez le nouveau `server/cloud-save/worker.js` dans l'éditeur du Worker, puis *Deploy*. La base ne change pas. Le nouveau serveur accepte aussi les jeux 1.5 et 1.6.
+
+---
+
 ## 1.6.0 — Lancer visé, bulles et classement automatique (10/11/2026)
 
 ✅ **Sauvegarde conservée.** Cette version intègre aussi les correctifs prévus pour la 1.5.1.

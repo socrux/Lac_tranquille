@@ -1285,6 +1285,28 @@ const ICON_SPRITES = {
     ],
     pal: { o: '#1e140c', h: '#e2bd55', H: '#b08a2e', b: '#7a3b2a', s: '#f2c497', S: '#c98f62', e: '#1e140c', r: '#c64a35', R: '#8e2f22' },
   },
+  // sac à dos en toile : bouton « Inventaire » de la barre d'icônes
+  bag: {
+    rows: [
+      '................',
+      '......oooo......',
+      '.....o....o.....',
+      '....oooooooo....',
+      '...obbbbbbbbo...',
+      '..obBBBBBBBBbo..',
+      '..obbbbbbbbbbo..',
+      '..obboooooobbo..',
+      '..obbokyykobbo..',
+      '..obbobbbbobbo..',
+      '..obbobbbbobbo..',
+      '..obboooooobbo..',
+      '..obbbbbbbbbbo..',
+      '..oBbbbbbbbbBo..',
+      '...oooooooooo...',
+      '................',
+    ],
+    pal: { o: '#1e140c', b: '#8a6a3a', B: '#5e4424', k: '#3a2a18', y: '#f5d04a' },
+  },
   menu: {
     rows: [
       '................',
@@ -1726,6 +1748,57 @@ function drawAccessory(c, it, col, dark, light, acc) {
       pxRect(c, 6, 11, 6, 1, '#2a120c');            // bouche cousue
       for (const x of [7, 9, 11]) pxRect(c, x, 10, 1, 3, '#c8b890');
       for (const [x, y] of [[5, 3], [12, 3], [5, 13]]) pxRect(c, x, y, 1, 1, acc);
+      break;
+    case 'bell':                                    // cloche de bouée en cuivre, battant, vert-de-gris
+      pxRect(c, 7, 1, 2, 2, dark);                  // anneau
+      pxRect(c, 6, 3, 4, 2, col);
+      pxRect(c, 5, 5, 6, 5, col);
+      pxRect(c, 4, 10, 8, 2, col);
+      pxRect(c, 3, 12, 10, 1, dark);
+      pxRect(c, 6, 4, 1, 7, light);                 // reflet
+      pxRect(c, 7, 13, 2, 2, acc);                  // battant
+      for (const [x, y] of [[9, 6], [10, 9], [5, 10]]) pxRect(c, x, y, 1, 1, '#5aa088');
+      break;
+    case 'deepamulet':                              // pierre noire percée sur un cordon de varech
+      pxLine(c, 3, 1, 7, 6, '#3a6a3a');
+      pxLine(c, 13, 1, 9, 6, '#3a6a3a');
+      pxDisk(c, 8, 10, 4, '#1a1e24');
+      pxDisk(c, 8, 10, 3, col);
+      pxDisk(c, 8, 10, 1, '#0a0c10');               // le trou
+      pxRect(c, 6, 8, 1, 1, acc);
+      pxRect(c, 10, 12, 1, 1, acc);
+      break;
+    case 'anchor':                                  // ancre gravée de runes lumineuses
+      pxRect(c, 6, 1, 4, 3, col);                   // anneau
+      c.clearRect(7, 2, 2, 1);
+      pxRect(c, 7, 4, 2, 9, col);                   // verge
+      pxRect(c, 4, 5, 8, 1, dark);                  // jas
+      pxRect(c, 2, 11, 2, 2, col);                  // bras et pattes
+      pxRect(c, 12, 11, 2, 2, col);
+      pxRect(c, 3, 13, 10, 1, col);
+      pxRect(c, 1, 10, 1, 1, light);
+      pxRect(c, 14, 10, 1, 1, light);
+      for (const y of [6, 8, 10]) pxRect(c, 7, y, 1, 1, acc);
+      break;
+    case 'idol':                                    // statuette accroupie, ailée, yeux fermés
+      pxRect(c, 4, 13, 8, 2, dark);                 // socle
+      pxRect(c, 5, 7, 6, 6, col);                   // corps
+      pxRect(c, 2, 6, 3, 5, dark);                  // ailes
+      pxRect(c, 11, 6, 3, 5, dark);
+      pxRect(c, 5, 2, 6, 5, col);                   // tête
+      pxRect(c, 5, 2, 1, 5, light);
+      pxRect(c, 6, 4, 1, 1, '#1a2a1a');             // yeux fermés
+      pxRect(c, 9, 4, 1, 1, '#1a2a1a');
+      for (const x of [6, 8, 10]) pxRect(c, x, 7, 1, 3, shadeHex(col, 0.75));   // tentacules du menton
+      pxRect(c, 7, 1, 2, 1, acc);
+      break;
+    case 'eldersign':                               // étoile à cinq branches gravée, œil de flamme
+      pxDisk(c, 8, 8, 7, dark);                     // pierre
+      pxDisk(c, 8, 8, 6, col);
+      for (const [x, y] of [[8, 2], [13, 6], [11, 13], [5, 13], [3, 6]]) pxLine(c, 8, 8, x, y, '#3a3a36');
+      pxRect(c, 7, 6, 3, 4, acc);                   // l'œil de flamme
+      pxRect(c, 8, 5, 1, 1, acc);
+      pxRect(c, 8, 7, 1, 2, '#fff0a0');
       break;
     default:                                        // emplacement vide : amulette
       pxRect(c, 7, 1, 2, 1, col);

@@ -115,6 +115,27 @@ r = await call('/v1/leaderboard?cat=earned;DROP', null, null, 'GET');
 ok('catégorie inconnue refusée', r.status === 400, r);
 r = await call('/v1/leaderboard?cat=earned', {}, null, 'POST');
 ok('POST sur le classement refusé', r.status === 405, r);
+// image SVG du README
+{
+  const svgRes = await worker.fetch(new Request('https://x.test/v1/leaderboard.svg'), env);
+  const svg = await svgRes.text();
+  ok('image SVG du classement', svgRes.status === 200 && svgRes.headers.get('content-type').startsWith('image/svg+xml')
+    && svg.startsWith('<svg') && svg.includes('Bob') && svg.includes('Léa') && svg.indexOf('Bob') < svg.indexOf('Léa'), svg.slice(0, 200));
+  ok('image : cache 5 min', svgRes.headers.get('cache-control') === 'public, max-age=300');
+  ok('image : aucun nom de poisson', !svg.includes('Perche'));
+  const days = await (await worker.fetch(new Request('https://x.test/v1/leaderboard.svg?cat=days'), env)).text();
+  ok('image : jours + temps de jeu', /jours? · 1 h 00 min 00 s/.test(days), days.match(/class="val"[^<]*<\/text>|>[^<]*jour[^<]*</g));
+  const bad = await worker.fetch(new Request('https://x.test/v1/leaderboard.svg?cat=x"><script>'), env);
+  ok('image : catégorie inconnue refusée', bad.status === 400);
+  // un pseudo avec apostrophe est échappé pour le XML
+  await call('/v1/save', { name: "L'ami", key: 'LAC-EEEEE-EEEEE-EEEEE-EEEEE', save: { ...save, look: { name: "L'ami" }, stats: { ...save.stats, earned: 3000 } }, baseRev: 0 });
+  const esc = await (await worker.fetch(new Request('https://x.test/v1/leaderboard.svg'), env)).text();
+  ok('image : texte échappé', esc.includes('L&apos;ami') && !esc.includes("L'ami"));
+  // sans limite par IP (proxy d'images de GitHub)
+  let last = 0;
+  for (let i = 0; i < 40; i++) last = (await worker.fetch(new Request('https://x.test/v1/leaderboard.svg', { headers: { 'cf-connecting-ip': '9.9.9.9' } }), env)).status;
+  ok('image : pas de limite par IP', last === 200);
+}
 // score impossible à l'inscription
 await call('/v1/save', { name: 'Triche', key: KEY, save: { ...save, look: { name: 'Triche' }, stats: { caught: 10, casts: 1 } }, baseRev: 0 });
 r = await call('/v1/score', { name: 'Triche', key: KEY, fish: '' });
@@ -127,7 +148,7 @@ r = await call('/v1/delete', { name: 'Léa', key: KEY2 });
 ok('suppression avec mauvaise clé refusée', r.status === 403, r);
 r = await call('/v1/delete', { name: 'Léa', key: KEY });
 r = await call('/v1/leaderboard?cat=earned', null, null, 'GET');
-ok('suppression (sauvegarde + score)', r.data.players.length === 1 && r.data.players[0].name === 'Bob', r.data.players);
+ok('suppression (sauvegarde + score)', !r.data.players.some((p) => p.name === 'Léa') && r.data.players.some((p) => p.name === 'Bob'), r.data.players);
 
 // --- cohérence pseudo ↔ nom du personnage
 r = await call('/v1/save', { name: 'Bob', key: KEY2, save: { ...save, look: { name: 'Alice' } }, baseRev: 0 });

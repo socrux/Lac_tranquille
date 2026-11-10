@@ -14,7 +14,7 @@ const BOAT_Y = 222;          // haut de la coque
 const $ = (id) => document.getElementById(id);
 
 // Version du jeu : à mettre à jour à chaque pull request (MAJEUR.MINEUR.CORRECTIF)
-const GAME_VERSION = '1.6.0';
+const GAME_VERSION = '1.7.0';
 // Garde-fou contre le cache : la page (index.html, <meta name="game-version">) et ce script doivent
 // être de la même version. Sinon, le navigateur a mélangé une copie en cache et une nouvelle
 // (GitHub Pages : cache de 10 minutes) : on recharge la page une seule fois (sessionStorage évite
@@ -32,11 +32,10 @@ const GAME_VERSION = '1.6.0';
 })();
 // Nouveautés affichées sur le menu de départ (les points importants ; le détail est dans CHANGELOG.md)
 const WHATS_NEW = [
-  'Lancez où vous voulez : le bouchon tombe à l\'endroit cliqué sur le lac',
-  'Des bulles remontent parfois à la surface : lancez dedans, poissons rares et abominations ×2',
-  'Classement automatique : votre score suit chaque sauvegarde en ligne',
-  'Sauvegarde en ligne proposée pendant l\'astuce sauvegarde',
-  'Correctif : le jeu ne s\'affiche plus à moitié après une mise à jour',
+  '5 nouveaux accessoires pour affronter le Grand Ancien (Signe des Anciens, Ancre runique…)',
+  'Carnet : nouvelles sections Objets et Accessoires, avec ceux qui restent à découvrir',
+  'Classement : les poissons que vous n\'avez jamais pêchés restent cachés (????)',
+  'Une caisse par niveau de bateau (jusqu\'à 5), et un bouton Inventaire',
 ];
 // Écran tactile principal (téléphone, tablette) : consignes « Touchez » au lieu de « Cliquez »
 const TOUCH = !!window.matchMedia?.('(pointer: coarse)').matches;
@@ -293,7 +292,12 @@ const POTS = [
 ];
 POTS.forEach((p, i) => { p.tier = i + 1; });
 const POT_BY_ID = Object.fromEntries(POTS.map((p) => [p.id, p]));
-const POT_SLOTS = [{ x: 118, y: 152 }, { x: 338, y: 140 }];   // 2 caisses à l'eau au maximum
+// Emplacements des caisses sur le lac : autant de caisses à l'eau que le niveau du bateau (1 à 5).
+// Les deux premiers sont ceux d'avant la 1.7.0 (les caisses déjà posées ne bougent pas).
+const POT_SLOTS = [
+  { x: 118, y: 152 }, { x: 338, y: 140 }, { x: 196, y: 130 }, { x: 412, y: 168 }, { x: 62, y: 138 },
+];
+const potSlotCount = () => Math.min(POT_SLOTS.length, boatLevel());
 const POT_BASE_INTERVAL = 45;                                   // secondes par prise, en moyenne
 const CORRUPTION_MAX_ABOMS = 30;                                // abominations pour un lac totalement corrompu
 
@@ -319,6 +323,14 @@ const escapeHtml = (s) => String(s).replace(/[&<>"'`=]/g, (ch) => ({ '&': '&amp;
 const dexKey = (f, abom) => (abom ? `${f.id}:abom` : f.id);
 const coinImg = () => `<img class="coin" src="${ICONS.coin}" alt="pièces">`;
 
+// Temps de jeu complet : « 3 h 07 min 42 s » (« 12 min 05 s », « 42 s » quand c'est plus court)
+function fmtHMS(total) {
+  const s = Math.max(0, Math.floor(Number.isFinite(total) ? total : 0));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  const pad = (n) => String(n).padStart(2, '0');
+  return h > 0 ? `${h} h ${pad(m)} min ${pad(sec)} s` : m > 0 ? `${m} min ${pad(sec)} s` : `${sec} s`;
+}
+
 function fmtTime(s) {
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
@@ -340,7 +352,7 @@ function emptyProgress() {
     baits: {},
     dex: {},
     potsOwned: {},          // { [type]: nombre possédé }
-    pots: [null, null],     // caisses à l'eau : { type, bait, placedAt, nextAt, contents: [] }
+    pots: POT_SLOTS.map(() => null),   // caisses à l'eau (une par emplacement) : { type, bait, placedAt, nextAt, contents: [] }
     achievements: {},       // { [id]: date de déblocage }
     look: null,             // apparence du personnage (voir character.js), nom compris
     boat: { level: 1, parts: [] },   // niveau du bateau et pièces réunies pour les niveaux suivants
@@ -361,6 +373,7 @@ function emptyProgress() {
     // tutoriels terminés (pêche avec grand-père, sauvegarde) ; cloud : réponse du joueur à
     // « Voulez-vous la sauvegarde en ligne ? » ('yes' / 'no', null = pas encore demandé)
     tuto: { fish: false, save: false, cloud: null },
+    seen: {},               // objets déjà obtenus au moins une fois ({ [id]: true }) : pages du carnet
     stats: {
       casts: 0, caught: 0, missed: 0, early: 0, aboms: 0, perfects: 0, chests: 0,
       crusts: 0, potsCollected: 0, cthulhu: 0, earned: 0, spent: 0, playTime: 0, best: null,
@@ -478,7 +491,7 @@ function validProgress(raw) {
       const n = hasOwn(owned, t.id) ? vInt(owned[t.id], SAVE_LIM.pots) : 0;
       if (n > 0) p.potsOwned[t.id] = n;
     }
-    p.pots = [0, 1].map((i) => validPot(vArr(s.pots)[i]));
+    p.pots = POT_SLOTS.map((_, i) => validPot(vArr(s.pots)[i]));   // anciennes sauvegardes : 2 emplacements, complétés
   });
   step('succès', () => {
     const ach = vObj(s.achievements);
@@ -575,6 +588,12 @@ function validProgress(raw) {
       cloud: tu.cloud === 'yes' || tu.cloud === 'no' ? tu.cloud : null,
     };
   });
+  // objets déjà obtenus : ids connus seulement, plus ceux de l'inventaire (anciennes sauvegardes)
+  step('objets découverts', () => {
+    const seen = vObj(s.seen);
+    for (const it of ITEMS) if (seen[it.id] === true) p.seen[it.id] = true;
+    for (const inst of p.items) p.seen[inst.id] = true;
+  });
   return p;
 }
 
@@ -631,6 +650,7 @@ function clearSave() {
   backupSave(readRawSave(), 'nouvelle partie');
   try { localStorage.removeItem(SAVE_KEY); } catch { /* idem */ }
   cloudUnlink();                                   // le lien en ligne appartenait à l'ancienne partie
+  setInvBadge(false);                              // pastille « nouvel objet » de l'ancienne partie
 }
 
 // --- Sauvegarde en ligne (Worker Cloudflare, voir server/cloud-save/) : configuration et état.
@@ -752,6 +772,8 @@ function mods() {
     const M = modsCache;
     M.speed = clamp(M.speed, -1, 0.6);
     M.vigor = clamp(M.vigor, -1, 0.6);
+    M.cthVigor = clamp(M.cthVigor, -1, 0.6);    // le Grand Ancien garde toujours au moins 40 % de sa fureur
+    M.cthBar = Math.max(M.cthBar, -0.6);
     // planchers : les malus des malédictions ne doivent jamais rendre une formule négative
     M.gold = Math.max(M.gold, -0.75);
     M.rare = Math.max(M.rare, -0.15);
@@ -1125,6 +1147,7 @@ function rollItem(srcTier = 0, abom = false) {
 // Ajoute un objet à l'inventaire. S'il est plein, l'objet est vendu automatiquement.
 function addItem(it) {
   progress.stats.itemsFound = (progress.stats.itemsFound || 0) + 1;
+  progress.seen[it.id] = true;                     // découvert, même s'il est revendu faute de place
   const inst = { uid: ++progress.itemSeq, id: it.id };
   if (progress.items.length >= ITEM_CAP) {
     const v = itemValue(it);
@@ -1133,7 +1156,17 @@ function addItem(it) {
     return { inst, sold: v };
   }
   progress.items.push(inst);
+  setInvBadge(true);                               // « ! » sur le bouton Inventaire jusqu'à la prochaine visite
   return { inst, sold: 0 };
+}
+
+// Pastille « ! » du bouton Inventaire : un objet est tombé depuis la dernière visite de l'inventaire
+// (retenue dans le navigateur, pour survivre à un rechargement de la page)
+const INV_BADGE_KEY = 'lacTranquille.newItems';
+function setInvBadge(on) {
+  $('btn-inv').classList.toggle('bang', on);
+  $('btn-inv').title = on ? 'Nouvel objet ! (raccourci : I)' : 'Raccourci : I';
+  try { if (on) localStorage.setItem(INV_BADGE_KEY, '1'); else localStorage.removeItem(INV_BADGE_KEY); } catch { /* stockage indisponible */ }
 }
 
 function equipItem(uid, slotId = null) {
@@ -1226,7 +1259,8 @@ function tickPots() {
 }
 
 function deployPot(slot, typeId, baitId) {
-  if (progress.pots[slot] || potsAvailable(typeId) <= 0) return false;
+  // un emplacement par niveau de bateau (une caisse déjà posée au-delà peut être relevée, pas reposée)
+  if (slot >= potSlotCount() || progress.pots[slot] || potsAvailable(typeId) <= 0) return false;
   if (baitId !== 'pain') {
     if (!(progress.baits[baitId] > 0)) baitId = 'pain';
     else if (--progress.baits[baitId] <= 0) {
@@ -1454,9 +1488,11 @@ function drawCthulhuRising() {
 function startReel(phase = 0) {
   const { f, abom } = game.fish;
   const cp = f.unique ? CTH_PHASES[phase] : null;
-  const bs = barSize() * (cp ? cp.bar : 1);
+  // contre le Grand Ancien : accessoires dédiés (barre plus large, vigueur réduite)
+  const bs = cp ? clamp(barSize() * cp.bar * (1 + mods().cthBar), 0.08, 0.6) : barSize();
   game.mg = {
-    vigor: cp ? cp.vigor * (0.6 + 0.4 * rod().vigor) * (1 - mods().vigor * 0.5) : fishVigor(f, abom) * (tuto.fishing ? 0.5 : 1),
+    vigor: cp ? cp.vigor * (0.6 + 0.4 * rod().vigor) * (1 - mods().vigor * 0.5) * (1 - mods().cthVigor)
+      : fishVigor(f, abom) * (tuto.fishing ? 0.5 : 1),
     phase: cp ? phase : -1,
     fillMul: cp ? cp.fill : 1,
     barSize: bs,
@@ -2904,6 +2940,7 @@ function onLake(x, y) {
   fgMask ||= fgLayer.getContext('2d').getImageData(0, 0, LW, LH).data;
   if (fgMask[(yi * LW + xi) * 4 + 3] > 0) return false;
   // le bateau (dessiné en BOAT_X - 60 - BOAT_SPR.px, BOAT_Y - 24 - BOAT_SPR.py ; marge d'un pixel)
+  if (!boatSprite) return true;                    // pas encore dessiné (tout premier instant) : rien à exclure
   if (boatMask.sprite !== boatSprite) {
     boatMask.sprite = boatSprite;
     boatMask.data = boatSprite.getContext('2d').getImageData(0, 0, boatSprite.width, boatSprite.height).data;
@@ -3378,6 +3415,9 @@ function enterGame() {
   document.activeElement?.blur();
   resetFishing();
   inGame = true;
+  let bang = false;
+  try { bang = localStorage.getItem(INV_BADGE_KEY) === '1'; } catch { /* stockage indisponible */ }
+  setInvBadge(bang && progress.items.length > 0);   // objets tombés lors d'une session précédente, pas encore vus
   $('menu').hidden = true;
   $('hud').hidden = false;
   // Avant la 1.2.1, l'horloge avançait panneaux ouverts mais pas le temps de jeu : on rattrape
@@ -3556,12 +3596,23 @@ const LB_NAME_RE = /^[\p{L}\p{M}\p{N} '’._-]{1,16}$/u;
 const LB_CACHE_MS = 30 * 1000;            // une catégorie déjà chargée n'est pas redemandée avant 30 s
 const LB_CATS = [
   { id: 'earned',   name: 'Pièces gagnées',   val: (p) => p.earned,           fmt: (p) => `${fmtNum(p.earned)} ${coinImg()}` },
-  { id: 'heaviest', name: 'Plus grosse prise', val: (p) => p.heaviest?.kg || 0, fmt: (p) => (p.heaviest?.kg ? `${fmtKg(p.heaviest.kg)} · ${escapeHtml(p.heaviest.fish)}` : '—') },
+  { id: 'heaviest', name: 'Plus grosse prise', val: (p) => p.heaviest?.kg || 0, fmt: (p) => (p.heaviest?.kg ? `${fmtKg(p.heaviest.kg)} · ${escapeHtml(lbFishName(p.heaviest.fish))}` : '—') },
   { id: 'dex',      name: 'Carnet',           val: (p) => p.dex,              fmt: (p) => `${fmtNum(p.dex)} / ${dexTotal()}` },
-  { id: 'days',     name: 'Jours au lac',     val: (p) => p.days,             fmt: (p) => `${fmtNum(p.days)} jour${p.days > 1 ? 's' : ''}` },
+  { id: 'days',     name: 'Jours au lac',     val: (p) => p.days,             fmt: (p) => `${fmtNum(p.days)} jour${p.days > 1 ? 's' : ''} <small class="lb-sub">· ${fmtHMS(p.playTime)} de jeu</small>` },
   { id: 'boat',     name: 'Bateau',           val: (p) => p.boat,             fmt: (p) => `${BOATS[p.boat - 1]?.name || '?'} (niv. ${fmtNum(p.boat)})` },
   { id: 'cthulhu',  name: 'Grand Ancien',     val: (p) => p.cthulhu,          fmt: (p) => `${fmtNum(p.cthulhu)} fois` },
 ];
+// Plus grosse prise des autres joueurs : le nom n'apparaît que si l'on a soi-même cette espèce
+// (ou cette abomination) dans son carnet ; sinon « ???? », pour ne rien dévoiler. Le serveur
+// envoie le nom affiché ; on le relie à l'entrée du carnet par la liste des noms du jeu.
+const FISH_NAME_KEYS = new Map([...FISH, ...CRUSTS].flatMap((f) => [
+  [f.name, dexKey(f, false)], ...(f.unique ? [] : [[f.abomName, dexKey(f, true)]]),
+]));
+function lbFishName(name) {
+  const key = FISH_NAME_KEYS.get(name);
+  const dex = inGame ? progress.dex : (loadSave()?.dex || {});
+  return key && dex[key] ? name : '????';
+}
 const lbData = {};                        // par catégorie : { at, updated, total, players }
 let lbCat = 'earned';
 let lbStatus = '';
@@ -4021,6 +4072,7 @@ let fmStacks = [];
 function renderFishmonger() {
   const mk = progress.market;
   $('fm-index').innerHTML = `Cours du jour : ${fmtIndex(mk.index)}`;
+  $('fm-purse').textContent = fmtNum(progress.money);
   fmStacks = renderCatchList($('fm-list'), true);
   const total = keepnetValue();
   $('fm-total').innerHTML = `Bourriche : ${progress.catches.length} / ${keepnetSize()} prises · ${fmtNum(total)} ${coinImg()}`;
@@ -4045,7 +4097,31 @@ function sellCatches(uids) {
   writeSave();
   updateHud();
   renderFishmonger();
+  showGain(total);
   checkAchievements({ type: 'sale', total });
+}
+
+// Récapitulatif d'une vente : « +X » à côté de l'argent (panneau du poissonnier et barre du haut)
+// pendant 5 s. Des ventes rapprochées s'additionnent, et le délai repart à chaque vente.
+const GAIN_SHOW_MS = 5000;
+const GAIN_IDS = ['fm-gain', 'hud-gain'];
+const gain = { total: 0, timer: 0 };
+function showGain(amount) {
+  if (!(amount > 0)) return;
+  gain.total += amount;
+  for (const id of GAIN_IDS) {
+    const el = $(id);
+    el.textContent = `+${fmtNum(gain.total)}`;
+    el.hidden = false;
+    el.classList.remove('pop');
+    void el.offsetWidth;                             // relance l'animation
+    el.classList.add('pop');
+  }
+  clearTimeout(gain.timer);
+  gain.timer = setTimeout(() => {
+    gain.total = 0;
+    for (const id of GAIN_IDS) $(id).hidden = true;
+  }, GAIN_SHOW_MS);
 }
 $('fm-list').addEventListener('click', (e) => {
   const b = e.target.closest('button');
@@ -4059,7 +4135,10 @@ $('fm-sell-all').addEventListener('click', () => sellCatches(progress.catches.ma
 // Cinématique d'ouverture : scènes dessinées dans le canvas du jeu + narration
 // ---------------------------------------------------------------------------
 const cine = { on: false, i: 0, t: 0, typer: null, then: null, art: null };
+// Scènes du lac : décalage vers le haut (pixels du jeu) pour garder la barque hors de la narration
+const CINE_LAKE_SHIFT = 56;
 function startIntro(then) {
+  tutoAbort();                                     // « Revoir l'introduction » en plein tutoriel : la bulle ne doit pas rester par-dessus
   cine.on = true;
   cine.i = 0;
   cine.then = then;
@@ -4159,12 +4238,20 @@ function drawCine(dt) {
     ctx.fillStyle = 'rgba(255, 140, 70, 0.18)';                            // lumière de fin d'après-midi
     ctx.fillRect(0, 0, LW, LH);
   } else {
-    renderScene();                                                       // le lac, avec la barque
+    // le lac, avec la barque : cadré plus haut pour que la barque reste au-dessus de la narration
+    // (sinon la boîte de texte cache le bateau et le personnage) ; le bas est complété par de l'eau
+    ctx.save();
+    ctx.translate(0, -CINE_LAKE_SHIFT);
+    renderScene();
+    ctx.restore();
+    ditherGradient(ctx, 0, LH - CINE_LAKE_SHIFT, LW, CINE_LAKE_SHIFT, ['#2466a6', '#1b4c86', '#143a6a']);
+    ctx.save();
+    ctx.translate(0, -CINE_LAKE_SHIFT);
     if (sc === 'eerie') {
       // le lac s'assombrit, puis deux grands yeux s'ouvrent sous la surface
       const a = Math.min(1, t / 3);
       ctx.fillStyle = `rgba(24, 4, 40, ${0.5 * a})`;
-      ctx.fillRect(0, HORIZON, LW, LH - HORIZON);
+      ctx.fillRect(0, HORIZON, LW, LH - HORIZON + CINE_LAKE_SHIFT);       // eau, bande ajoutée comprise
       ctx.fillStyle = `rgba(24, 4, 40, ${0.25 * a})`;
       ctx.fillRect(0, 0, LW, HORIZON);
       const open = clamp((t - 1.5) / 1.5, 0, 1);
@@ -4175,6 +4262,7 @@ function drawCine(dt) {
       }
       ctx.globalAlpha = 1;
     }
+    ctx.restore();
   }
   if (t < 0.6) {                                                         // fondu au noir entre les scènes
     ctx.fillStyle = `rgba(0, 0, 0, ${1 - t / 0.6})`;
@@ -4414,7 +4502,7 @@ function openPanel(name) {
   if (name === 'shop') renderShop();
   if (name === 'sheet') renderSheet();
   if (name === 'options') syncOptions();
-  if (name === 'crates') renderCrates();
+  if (name === 'crates') { crateSellConfirm = null; crateMsg(''); renderCrates(); }
   if (name === 'pot') renderPotRecap();
   if (name === 'achievements') renderAchievements();
   if (name === 'char') renderCharEditor();
@@ -4439,10 +4527,15 @@ document.querySelectorAll('[data-open]').forEach((b) =>
   b.addEventListener('click', (e) => { e.currentTarget.blur(); openPanel(b.dataset.open); }));
 document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => { Sound.click(); closePanel(); }));
 // clic à côté d'un panneau : on le ferme (sauf l'éditeur de personnage, pour ne rien perdre par erreur)
-$('overlay').addEventListener('pointerdown', (e) => { if (e.target.id === 'overlay' && openPanelName !== 'char') closePanel(); });
+$('overlay').addEventListener('pointerdown', (e) => {
+  if (e.target.id !== 'overlay' || openPanelName === 'char') return;
+  if (openPanelName === 'pot') closePotRecap(); else closePanel();
+});
 
 // ---------------------------------------------------------------------------
-// Carnet (livre) : deux sections, Poissons et Crustacés
+// Carnet (livre) : Poissons et Crustacés (une double page par espèce : normale / abomination),
+// Objets et Accessoires (deux objets par double page). Un objet jamais obtenu apparaît en
+// silhouette noire, caractéristiques masquées ; sa rareté reste visible, pour savoir s'il existe mieux.
 // ---------------------------------------------------------------------------
 let bookSection = 'fish';
 let spread = 0;
@@ -4450,9 +4543,14 @@ let bookCanvases = [];
 const BOOK = {
   fish: { list: FISH, title: 'Poissons', prefix: '' },
   crust: { list: CRUSTS, title: 'Crustacés', prefix: 'C' },
+  // vêtements dans l'ordre des emplacements, puis par rareté
+  items: { items: true, title: 'Objets', prefix: 'O',
+    list: ITEMS.filter((it) => it.slot !== 'acc').sort((a, b) => ITEM_KINDS.findIndex((k) => k.id === a.slot) - ITEM_KINDS.findIndex((k) => k.id === b.slot) || a.tier - b.tier) },
+  acc: { items: true, title: 'Accessoires', prefix: 'A', list: ITEMS.filter((it) => it.slot === 'acc').sort((a, b) => a.tier - b.tier) },
 };
 const bookList = () => BOOK[bookSection].list;
-const spreadCount = () => bookList().length + 1;
+const itemSection = () => !!BOOK[bookSection].items;
+const spreadCount = () => (itemSection() ? Math.ceil(bookList().length / 2) : bookList().length) + 1;
 const dexTotal = () => FISH.reduce((s, f) => s + (f.unique ? 1 : 2), 0) + CRUSTS.length * 2;
 
 function vigorDots(v) {
@@ -4493,7 +4591,68 @@ function lorePage(f) {
     <p class="desc">Chance actuelle : ${fmtPct(fishOdds()[FISH.indexOf(f)])}</p>`;
 }
 
+// --- pages d'objets
+const ownedCount = (it) => progress.items.filter((x) => x.id === it.id).length;
+function itemPage(it, index) {
+  if (!it) return '<div class="page-blank"></div>';
+  const known = !!progress.seen[it.id];
+  const rar = RARITIES[it.tier];
+  const unk = '????';
+  const kind = KIND_BY_ID[it.slot];
+  // y a-t-il mieux dans la même catégorie ? (même emplacement, rareté supérieure)
+  const better = ITEMS.filter((x) => x.slot === it.slot && x.tier > it.tier);
+  const betterSeen = better.filter((x) => progress.seen[x.id]).length;
+  const owned = known ? ownedCount(it) : 0;
+  const worn = known && progress.items.some((x) => x.id === it.id && isEquipped(x));
+  return `
+    <div class="page-head">
+      <span class="rarity" style="background:${rar.color}">${rar.name}</span>
+      <span class="page-num">N° ${BOOK[bookSection].prefix}${String(index + 1).padStart(2, '0')}</span>
+    </div>
+    <h2>${known ? escapeHtml(it.name) : unk}</h2>
+    <div class="book-item"><img class="book-item-icon${known ? '' : ' silhouette'}" src="${equipIcon(it)}" alt=""></div>
+    <dl class="records">
+      <dt>Type</dt><dd class="keep">${kind.name}</dd>
+      <dt>Effets</dt><dd>${known ? fxLines(it.fx).map(escapeHtml).join('<br>') : `${unk}<br>${unk}`}</dd>
+      <dt>Valeur</dt><dd>${known ? `${fmtNum(itemValue(it))} ${coinImg()}` : unk}</dd>
+      <dt>Possédés</dt><dd>${known ? `${fmtNum(owned)}${worn ? ' (porté)' : ''}` : unk}</dd>
+      <dt>Mieux ?</dt><dd class="keep">${better.length
+        ? `${better.length} ${kind.id === 'acc' ? 'accessoire' : 'objet'}${better.length > 1 ? 's' : ''} plus rare${better.length > 1 ? 's' : ''} (${betterSeen} découvert${betterSeen > 1 ? 's' : ''})`
+        : 'Le plus rare de sa catégorie'}</dd>
+    </dl>
+    <p class="desc">${known ? escapeHtml(it.desc) : '???? ???? ?? ??????? ???? ??? ????? ?? ???????.'}</p>`;
+}
+
+function itemCoverPages() {
+  const list = bookList();
+  const sec = BOOK[bookSection];
+  const found = list.filter((it) => progress.seen[it.id]).length;
+  const byTier = RARITIES.map((r, t) => ({ r, n: list.filter((it) => it.tier === t).length, f: list.filter((it) => it.tier === t && progress.seen[it.id]).length }))
+    .filter((x) => x.n);
+  const left = `
+    <div class="cover">
+      <h2>Carnet des Trouvailles</h2>
+      <h3>${sec.title}</h3>
+      <p class="big">Découverts : ${found} / ${list.length}</p>
+      <ul class="tier-count">${byTier.map((x) => `<li><span class="rarity" style="background:${x.r.color}">${x.r.name}</span> ${x.f} / ${x.n}</li>`).join('')}</ul>
+      <p class="desc note">« On trouve de tout au fond d'un lac.<br>Surtout ce qu'on n'y cherchait pas. »</p>
+    </div>`;
+  const items = list.map((it, i) => {
+    const k = progress.seen[it.id];
+    return `<li data-goto="${Math.floor(i / 2) + 1}">
+      <span>N° ${sec.prefix}${String(i + 1).padStart(2, '0')}</span>
+      <span style="color:${shadeHex(RARITIES[it.tier].color, 0.62)}">${k ? escapeHtml(it.name) : '????'}</span>
+      <span class="dots"></span>
+      <span class="mark" title="Découvert">${k ? '●' : '○'}</span>
+    </li>`;
+  }).join('');
+  const right = `<h2>Sommaire</h2><ul class="toc">${items}</ul>
+    <p class="desc">● découvert &nbsp; ○ jamais obtenu</p>`;
+  return [left, right];
+}
+
 function coverPages() {
+  if (itemSection()) return itemCoverPages();
   const list = bookList();
   const normals = list.filter((f) => progress.dex[dexKey(f, false)]).length;
   const withAbom = list.filter((f) => !f.unique);
@@ -4532,6 +4691,13 @@ function renderBook(dir = 0) {
     [left.innerHTML, right.innerHTML] = coverPages();
     left.className = 'page left';
     right.className = 'page right';
+  } else if (itemSection()) {
+    const i = (spread - 1) * 2;
+    const a = bookList()[i], b = bookList()[i + 1];
+    left.innerHTML = itemPage(a, i);
+    right.innerHTML = itemPage(b, i + 1);
+    left.className = `page left item-page${progress.seen[a.id] ? '' : ' unknown'}`;
+    right.className = `page right item-page${!b || progress.seen[b.id] ? '' : ' unknown'}`;
   } else {
     const f = bookList()[spread - 1];
     left.innerHTML = fishPage(f, false, spread - 1);
@@ -4803,6 +4969,7 @@ function onGearClick(e) {
     progress.money -= bricPrice(it);
     progress.stats.spent += bricPrice(it);
     progress.items.push({ uid: ++progress.itemSeq, id });
+    progress.seen[id] = true;
     progress.bric.sold[i] = true;
     Sound.buy();
     $('shop-npc').querySelector('p').textContent = `« ${it.name} ? Excellent choix. Prenez-en soin. »`;
@@ -4884,6 +5051,7 @@ function renderSheet() {
   const look = validLook(progress.look);
   $('sheet-title').textContent = look.name ? `${look.name}, ${fisherWord(look.sex)}` : `Profil du ${fisherWord(look.sex)}`;
   document.querySelectorAll('[data-stab]').forEach((b) => b.classList.toggle('active', b.dataset.stab === sheetTab));
+  if (sheetTab === 'inv' && $('btn-inv').classList.contains('bang')) setInvBadge(false);   // inventaire vu
   $('inv-count').textContent = `(${progress.items.length})`;
   $('fish-count').textContent = `(${progress.catches.length}/${keepnetSize()})`;
   $('sheet-main').hidden = sheetTab !== 'gear';
@@ -5161,7 +5329,7 @@ $('sheet-gear').addEventListener('click', (e) => {
 // ---------------------------------------------------------------------------
 // Panneau des caisses à crustacés
 // ---------------------------------------------------------------------------
-const crateSel = [{}, {}];   // choix mémorisés (type de caisse, appât) pour chaque emplacement libre
+const crateSel = POT_SLOTS.map(() => ({}));   // choix mémorisés (type de caisse, appât) pour chaque emplacement libre
 
 function fmtDuration(s) {
   s = Math.max(0, s);
@@ -5180,7 +5348,15 @@ function crateStatus(p) {
 
 function renderCrates() {
   const baits = BAITS.filter((b) => b.pack === 0 || progress.baits[b.id] > 0);
+  const n = potSlotCount();
+  assignCrateDefaults();                             // meilleure caisse disponible par défaut
+  $('crates-hint').textContent = `${n} caisse${n > 1 ? 's' : ''} à l'eau au maximum avec votre bateau (une par niveau de bateau).`;
   $('crates-list').innerHTML = progress.pots.map((p, i) => {
+    // emplacement pas encore débloqué (et vide) : on montre ce qu'il faut pour l'ouvrir
+    if (!p && i >= n) {
+      return `<div class="slot crate-slot empty locked"><div class="slot-label">Emplacement ${i + 1} · verrouillé</div>
+        <div class="eff">Disponible avec le bateau de niveau ${i + 1} (${escapeHtml(BOATS[i].name)}).</div></div>`;
+    }
     if (p) {
       const t = potType(p);
       return `
@@ -5200,7 +5376,7 @@ function renderCrates() {
         <div class="eff">Aucune caisse disponible. Achetez-en une au bric-à-brac du village (onglet « Caisses »).</div></div>`;
     }
     const sel = crateSel[i];
-    if (!types.some((t) => t.id === sel.type)) sel.type = types[0].id;
+    if (!types.some((t) => t.id === sel.type)) sel.type = bestPotType() || types[0].id;
     if (!baits.some((b) => b.id === sel.bait)) sel.bait = 'pain';
     const odds = crustOdds({ type: sel.type, bait: sel.bait });
     const rareOdds = odds.reduce((s, o, k) => s + (CRUSTS[k].tier >= 2 ? o : 0), 0);
@@ -5216,8 +5392,70 @@ function renderCrates() {
         <div class="stock">Un appât est placé dans la caisse à chaque mise à l'eau.</div>
         <div class="chips"><button class="btn" data-deploy="${i}">Mettre à l'eau</button></div>
       </div>`;
-  }).join('');
+  }).join('') + ownedCratesHtml();
 }
+
+// Choix par défaut des emplacements libres : la meilleure caisse disponible (rang le plus élevé),
+// en tenant compte des autres emplacements libres, pour ne pas proposer partout la même caisse
+// unique. Un choix fait à la main par le joueur est gardé tant que la caisse reste disponible.
+function bestPotType(remaining) {
+  for (let k = POTS.length - 1; k >= 0; k--) {
+    const id = POTS[k].id;
+    if ((remaining ? remaining[id] : potsAvailable(id)) > 0) return id;
+  }
+  return null;
+}
+function assignCrateDefaults() {
+  const remaining = Object.fromEntries(POTS.map((t) => [t.id, potsAvailable(t.id)]));
+  const free = [];
+  for (let i = 0; i < potSlotCount(); i++) if (!progress.pots[i]) free.push(i);
+  for (const i of free) {                             // d'abord les choix faits à la main
+    const sel = crateSel[i];
+    if (sel.manual && remaining[sel.type] > 0) remaining[sel.type]--;
+    else sel.manual = false;
+  }
+  for (const i of free) {                             // puis la meilleure caisse restante
+    const sel = crateSel[i];
+    if (sel.manual) continue;
+    sel.type = bestPotType(remaining) || bestPotType() || sel.type;
+    if (remaining[sel.type] > 0) remaining[sel.type]--;
+  }
+}
+
+// --- Revente des caisses : seules celles qui ne sont pas à l'eau peuvent être revendues
+const POT_RESALE = 0.4;                             // 40 % du prix d'achat
+const potResale = (t) => Math.max(5, Math.round((t.price * POT_RESALE) / 5) * 5);
+let crateSellConfirm = null;                        // type de caisse dont la revente attend confirmation
+function ownedCratesHtml() {
+  const owned = POTS.filter((t) => (progress.potsOwned[t.id] || 0) > 0);
+  if (!owned.length) return '';
+  const rows = owned.map((t) => {
+    const n = progress.potsOwned[t.id];
+    const free = potsAvailable(t.id);
+    const confirm = crateSellConfirm === t.id;
+    return `<div class="crate-owned-row">
+      <img src="${itemIcon('pot', t)}" alt="">
+      <div><b>${t.name}</b> <small>· ${n} possédée${n > 1 ? 's' : ''}${n - free ? ` dont ${n - free} à l'eau` : ''}</small></div>
+      <small>Revente : ${fmtNum(potResale(t))} ${coinImg()}</small>
+      <button class="btn${confirm ? ' confirm' : ''}" data-sell-pot="${t.id}" ${free > 0 ? '' : 'disabled title="Toutes les caisses de ce type sont à l\'eau"'}>
+        ${confirm ? 'Confirmer ?' : 'Revendre 1'}</button>
+    </div>`;
+  }).join('');
+  return `<div class="crate-owned"><h3>Mes caisses</h3>${rows}</div>`;
+}
+function sellPot(typeId) {
+  const t = POT_BY_ID[typeId];
+  if (!t || potsAvailable(typeId) <= 0) return false;
+  progress.potsOwned[typeId] -= 1;
+  if (progress.potsOwned[typeId] <= 0) delete progress.potsOwned[typeId];
+  progress.money += potResale(t);
+  Sound.sell();
+  showGain(potResale(t));
+  writeSave();
+  updateHud();
+  return true;
+}
+const crateMsg = (txt) => { $('crates-msg').textContent = txt; };
 
 // Mise à jour légère (chaque seconde) sans tout reconstruire, pour ne pas fermer les listes déroulantes
 function refreshCrateStatus() {
@@ -5231,7 +5469,7 @@ function refreshCrateStatus() {
 
 $('crates-list').addEventListener('change', (e) => {
   const d = e.target.dataset;
-  if (d.selType) crateSel[+d.selType].type = e.target.value;
+  if (d.selType) Object.assign(crateSel[+d.selType], { type: e.target.value, manual: true });
   if (d.selBait) crateSel[+d.selBait].bait = e.target.value;
   renderCrates();
 });
@@ -5241,9 +5479,42 @@ $('crates-list').addEventListener('click', (e) => {
   if (!b) return;
   if (b.dataset.deploy) {
     const i = +b.dataset.deploy;
-    if (deployPot(i, crateSel[i].type, crateSel[i].bait)) renderCrates();
+    const sel = crateSel[i];
+    // vérification au moment du lancement : la caisse choisie a pu partir dans un autre emplacement
+    // entre-temps (plusieurs emplacements préparés, puis lancés l'un après l'autre)
+    if (potsAvailable(sel.type) <= 0) {
+      crateMsg(`Plus de « ${POT_BY_ID[sel.type].name} » disponible : elles sont toutes à l'eau. Choisissez une autre caisse.`);
+      sel.manual = false;
+      Sound.miss();
+      renderCrates();
+      return;
+    }
+    if (sel.bait !== 'pain' && !(progress.baits[sel.bait] > 0)) {
+      crateMsg(`Plus de « ${BAIT_BY_ID[sel.bait].name} » : choisissez un autre appât.`);
+      sel.bait = 'pain';
+      Sound.miss();
+      renderCrates();
+      return;
+    }
+    if (deployPot(i, sel.type, sel.bait)) {
+      crateMsg(`${POT_BY_ID[sel.type].name} mise à l'eau (emplacement ${i + 1}).`);
+      sel.manual = false;
+      renderCrates();
+    }
   } else if (b.dataset.collect) {
+    crateMsg('');
     collectPot(+b.dataset.collect);
+  } else if (b.dataset.sellPot) {
+    const id = b.dataset.sellPot;
+    if (crateSellConfirm !== id) {                   // premier clic : demande de confirmation
+      crateSellConfirm = id;
+      Sound.click();
+      renderCrates();
+      return;
+    }
+    crateSellConfirm = null;
+    if (sellPot(id)) crateMsg(`${POT_BY_ID[id].name} revendue ${fmtNum(potResale(POT_BY_ID[id]))} pièces.`);
+    renderCrates();
   }
 });
 
@@ -5283,7 +5554,7 @@ function renderPotRecap() {
   });
   const baitOk = lp.bait === 'pain' || progress.baits[lp.bait] > 0;
   const btn = $('pot-redeploy');
-  btn.disabled = !!progress.pots[lp.slot] || potsAvailable(lp.type) <= 0;
+  btn.disabled = !!progress.pots[lp.slot] || potsAvailable(lp.type) <= 0 || lp.slot >= potSlotCount();
   btn.textContent = `Remettre à l'eau (${baitOk ? BAIT_BY_ID[lp.bait].name : 'Mie de pain'})`;
 }
 
@@ -5292,6 +5563,13 @@ $('pot-redeploy').addEventListener('click', () => {
   const baitId = lp.bait === 'pain' || progress.baits[lp.bait] > 0 ? lp.bait : 'pain';
   if (deployPot(lp.slot, lp.type, baitId)) closePanel();
 });
+// Caisse relevée sans être remise à l'eau : on revient à la gestion des caisses (bouton, Échap,
+// clic à côté), pour en poser une autre ou changer d'appât
+function closePotRecap() {
+  Sound.click();
+  openPanel('crates');
+}
+$('pot-close').addEventListener('click', closePotRecap);
 
 // ---------------------------------------------------------------------------
 // Succès (cosmétiques)
@@ -5759,6 +6037,13 @@ async function saveNow() {
   $('btn-save').disabled = false;
 }
 $('btn-save').addEventListener('click', (e) => { e.currentTarget.blur(); saveNow(); });
+// Inventaire : directement l'onglet « Inventaire » du profil (même chose que la touche I)
+$('btn-inv').addEventListener('click', (e) => {
+  e.currentTarget.blur();
+  if (openPanelName === 'sheet' && sheetTab === 'inv') { closePanel(); return; }
+  sheetTab = 'inv';
+  if (openPanelName === 'sheet') renderSheet(); else openPanel('sheet');
+});
 
 $('cloud-push').addEventListener('click', () => { Sound.click(); if (inGame) writeSave(); cloudPush(); });
 
@@ -6093,7 +6378,8 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   if (e.code === 'Escape') {
-    if (openPanelName) closePanel();
+    if (openPanelName === 'pot') closePotRecap();
+    else if (openPanelName) closePanel();
     else if (inGame) showMenu();
     return;
   }
