@@ -21,8 +21,8 @@ La partie est enregistrée **dans le navigateur, pour une adresse donnée**. Une
 ✅ **Sauvegarde conservée.**
 
 ### Améliorations
-- **Nouvelle police d'écriture : Jersey 15**, à la place de Pixelify Sans. Toujours en pixel art, mais bien plus lisible : les chiffres ne se confondent plus (le 3, le 5 et le 2, le 8) et le texte se lit d'un trait. Accents, « Œ » et guillemets français compris.
-- La mise en page ne change pas : la police est mise à l'échelle pour occuper la même place que l'ancienne.
+- **Nouvelle police d'écriture : Bitcount Grid**, à la place de Pixelify Sans. Du vrai pixel art en grille, mais bien plus lisible : les chiffres ne se confondent plus (le 3, le 5 et le 2, le 8). Accents, « Œ » et guillemets français compris.
+- La mise en page ne change pas : la police est mise à l'échelle pour occuper à peu près la même place que l'ancienne.
 - **Plus fluide** : les poissons du carnet, de la caisse relevée et de la carte de prise ne sont plus redessinés à chaque image (seules les abominations et le Grand Ancien s'animent), les effets de malédiction et le classement coûtent moins cher.
 
 ### Corrections

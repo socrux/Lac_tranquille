@@ -1,25 +1,27 @@
-/* Police Jersey 15 hébergée avec le jeu (licence SIL OFL 1.1, voir fonts/OFL.txt) :
-   aucune requête vers un serveur tiers. Pixel art aux chiffres bien distincts.
-   size-adjust : agrandie pour occuper la même place que l'ancienne police (mise en page inchangée).
-   Une seule graisse, déjà épaisse : font-synthesis évite un faux gras qui baverait sur les pixels. */
+/* Police Bitcount Grid Single hébergée avec le jeu (licence SIL OFL 1.1, voir fonts/OFL.txt) :
+   aucune requête vers un serveur tiers. Pixel art en grille, chiffres très nets.
+   Police variable : la graisse (wght) va de 100 à 900, le texte courant est en 550.
+   size-adjust : réduite, car elle est plus large que les précédentes (les libellés tiennent sur une ligne). */
 @font-face {
-  font-family: "Jersey 15";
-  src: url("fonts/Jersey15-Regular.ttf") format("truetype");
+  font-family: "Bitcount Grid Single";
+  src: url("fonts/BitcountGridSingle.ttf") format("truetype");
   font-weight: 100 900;
   font-display: swap;
-  size-adjust: 125%;
+  size-adjust: 84%;
 }
 
 * { box-sizing: border-box; }
+/* champs de saisie et listes : même police et même graisse que le texte (sinon graisse 400, trop fine) */
+input, select, textarea { font-weight: inherit; }
 
 html, body {
   margin: 0;
   height: 100%;
   background: #0a0e1c;
   color: #fff;
-  font-family: "Jersey 15", "Courier New", monospace;
+  font-family: "Bitcount Grid Single", "Courier New", monospace;
+  font-weight: 550;                                 /* graisse de base (police variable) */
   font-synthesis: none;
-  letter-spacing: 0.02em;
 }
 
 body {
@@ -139,7 +141,7 @@ img, canvas.px { image-rendering: pixelated; }
   border-radius: 0.35em;
 }
 
-button { font-family: inherit; color: #fff; text-shadow: var(--outline); cursor: pointer; }
+button { font-family: inherit; font-weight: inherit; color: #fff; text-shadow: var(--outline); cursor: pointer; }
 
 .btn {
   font-size: 1em;
@@ -423,7 +425,7 @@ button { font-family: inherit; color: #fff; text-shadow: var(--outline); cursor:
 @keyframes turnPrev { from { transform: rotateY(70deg); filter: brightness(0.7); } to { transform: none; filter: none; } }
 
 .page h2 { margin: 0.2em 0 0; font-weight: 600; font-size: 1.7em; }
-.page h3 { margin: 0.2em 0; font-weight: 400; }
+.page h3 { margin: 0.2em 0; font-weight: 500; }
 .page.abom h2 { color: #4a1652; }
 
 .page-head { display: flex; justify-content: space-between; align-items: center; font-size: 0.95em; }
@@ -798,7 +800,7 @@ button { font-family: inherit; color: #fff; text-shadow: var(--outline); cursor:
 .lb-hint { flex: 1; margin: 0; font-size: 0.85em; opacity: 0.8; }
 
 /* ---------- Boutique : niveaux et chantier naval ---------- */
-.tier { font-size: 0.7em; font-weight: 400; color: #b8c4ff; letter-spacing: 0.05em; margin-left: 0.3em; }
+.tier { font-size: 0.7em; font-weight: 500; color: #b8c4ff; letter-spacing: 0.05em; margin-left: 0.3em; }
 .item.locked { background: rgba(30, 36, 70, 0.75); box-shadow: inset 0 0 0 0.1em #3a4478; }
 .item.locked .info, .item.locked .item-icon { opacity: 0.55; }
 .yard-head { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 0.6em; }
